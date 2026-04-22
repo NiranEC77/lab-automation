@@ -11,12 +11,24 @@ REPO_DIR="$LAB_DIR/vcfa-terraform-examples"
 mkdir -p "$LAB_DIR"
 mkdir -p "$BIN_DIR"
 
+# Temporarily add to path for this session
 export PATH="$BIN_DIR:$PATH"
 
-# --- 2. Install CLIs ---
-echo "Installing prerequisites (curl, unzip, git)..."
+# --- 2. Install CLIs & Prerequisites ---
+echo "Checking prerequisites..."
 sudo apt-get update -y
-sudo apt-get install -y curl unzip git jq apt-transport-https ca-certificates gnupg
+
+# List of required packages
+PACKAGES="curl unzip git jq apt-transport-https ca-certificates gnupg"
+
+for pkg in $PACKAGES; do
+    if ! dpkg -s $pkg >/dev/null 2>&1; then
+        echo "Installing $pkg..."
+        sudo apt-get install -y $pkg
+    else
+        echo "$pkg is already installed. Skipping."
+    fi
+done
 
 # Install Kubectl
 if ! command -v kubectl &> /dev/null; then
@@ -24,6 +36,8 @@ if ! command -v kubectl &> /dev/null; then
     curl -fsSLO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
     chmod +x kubectl
     mv kubectl "$BIN_DIR/"
+else
+    echo "kubectl is already installed."
 fi
 
 # Install Terraform
@@ -33,11 +47,14 @@ if ! command -v terraform &> /dev/null; then
     echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
     sudo apt-get update -y
     sudo apt-get install -y terraform
+else
+    echo "Terraform is already installed."
 fi
 
 # Install VCF CLI (Placeholder)
-echo "Installing VCF CLI..."
-# ADD VCF CLI INSTALLATION COMMANDS HERE (e.g., pulling the binary from your vCenter plugin URL)
+echo "Setting up VCF CLI..."
+# ADD VCF CLI INSTALLATION COMMANDS HERE
+# Example: curl -L <url-to-vcf-cli> -o vcf && chmod +x vcf && mv vcf $BIN_DIR/
 
 
 # --- 3. Setup Aliases ---
@@ -66,18 +83,16 @@ fi
 
 
 # --- 5. Add Static Variables File ---
-# Navigating to the argo-e2e directory (adjust path if your root module is elsewhere)
+# Navigating to the argo-e2e directory
 cd "$REPO_DIR/argo-e2e"
 
 echo "Injecting static variables..."
 cat << 'EOF' > terraform.tfvars
-# REPLACE THESE WITH YOUR STATIC VARIABLES
 vcenter_server      = "vc-wld01-a.site-a.vcf.lab"
 vcenter_user        = "administrator@wld.sso"
 vcenter_password    = "VMware123!VMware123!"
 supervisor_cluster  = "domain-c8"
 namespace_name      = "field-e2e-lab-ns"
-# Add any other required variables for the argo-e2e module
 EOF
 
 
@@ -85,10 +100,10 @@ EOF
 echo "Initializing Terraform..."
 terraform init
 
-echo "Targeting Supervisor Namespace creation..."
+echo "Phase 1: Targeting Supervisor Namespace creation..."
 terraform apply -target=module.supervisor_namespace -auto-approve
 
-echo "Applying the rest of the infrastructure (ArgoCD, etc.)..."
+echo "Phase 2: Applying the rest of the infrastructure (ArgoCD, K8s cluster, etc.)...."
 terraform apply -auto-approve
 
 
@@ -96,12 +111,16 @@ terraform apply -auto-approve
 echo "Setting up Supervisor and VCFA contexts..."
 
 # SUPERVISOR CONTEXT
-# REPLACE WITH YOUR COMMANDS
-# Example: vcf login --server <ip> --user <user> ... 
+echo "Logging into Supervisor Cluster..."
+# REPLACE WITH YOUR SUPERVISOR LOGIN COMMAND
+# Example: vcf login --server <supervisor-ip> --user <user> --password <pass> --insecure
 
 # VCFA CONTEXT
-# REPLACE WITH YOUR COMMANDS
-# Example: kubectl vsphere login --server <vcfa-ip> ...
+echo "Logging into VCFA..."
+# REPLACE WITH YOUR VCFA LOGIN COMMAND
+# Example: kubectl vsphere login --server <vcfa-ip> --insecure-skip-tls-verify ...
 
-echo "Field Lab deployment successfully completed!"
-echo "Please run 'source ~/.bashrc' to ensure your aliases are loaded in your current terminal."
+echo "========================================="
+echo "✅ Field Lab deployment successfully completed!"
+echo "========================================="
+echo "Please run 'source ~/.bashrc' or restart your terminal to ensure your aliases (k, tf) are loaded."
