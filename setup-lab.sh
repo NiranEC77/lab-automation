@@ -17,11 +17,27 @@ export PATH="$BIN_DIR:$PATH"
 # --- 2. Install CLIs & Prerequisites ---
 echo "Checking prerequisites..."
 sudo apt-get update -y
+# Force fix any pre-existing broken dependencies on the fresh lab image
+sudo apt-get --fix-broken install -y
 
-# List of required packages
-PACKAGES="curl unzip git jq apt-transport-https ca-certificates gnupg"
+# Install standard CLI tools
+TOOLS="curl unzip git jq gpg"
+for tool in $TOOLS; do
+    if ! command -v $tool &> /dev/null; then
+        echo "Installing $tool..."
+        if [ "$tool" = "curl" ]; then
+            # Force curl and its library to sync versions to prevent the libcurl4t64 error
+            sudo apt-get install -y curl libcurl4t64 || sudo apt-get install -y curl
+        else
+            sudo apt-get install -y $tool
+        fi
+    else
+        echo "$tool is already installed. Skipping."
+    fi
+done
 
-for pkg in $PACKAGES; do
+# Install apt-specific certificates
+for pkg in apt-transport-https ca-certificates; do
     if ! dpkg -s $pkg >/dev/null 2>&1; then
         echo "Installing $pkg..."
         sudo apt-get install -y $pkg
@@ -103,7 +119,7 @@ terraform init
 echo "Phase 1: Targeting Supervisor Namespace creation..."
 terraform apply -target=module.supervisor_namespace -auto-approve
 
-echo "Phase 2: Applying the rest of the infrastructure (ArgoCD, K8s cluster, etc.)...."
+echo "Phase 2: Applying the rest of the infrastructure (ArgoCD, K8s cluster, etc.)..."
 terraform apply -auto-approve
 
 
