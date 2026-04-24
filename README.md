@@ -35,7 +35,7 @@ This project provides a single-click, fully automated bootstrap script to set up
 * **Variable Injection:** Captures your VCFA API token securely and generates a complete `terraform.tfvars` file for the `argo-e2e` module.
 * **Phase 1 Execution:** Executes `terraform apply` targeted specifically at creating the vSphere Supervisor Namespace.
 * **vCenter API Bug Fix:** Automatically authenticates against the vCenter REST API in the background to inject a dummy limit update, fixing the known "Namespace Capacity/Usage" bug that prevents resources from deploying.
-* **VCF Authentication Automation:** Uses an `expect` script to securely and invisibly bypass the interactive prompts in the `vcf context create` CLI command.
+* **Supervisor Context Creation:** Automatically logs into the Supervisor Cluster and creates your local Kubernetes context (`supervisor-ctx`), using an `expect` script to securely and invisibly bypass the interactive `vcf` CLI prompts.
 * **Phase 2 Execution:** Executes the final `terraform apply` to deploy the workload K8s cluster and ArgoCD instance into the unstuck namespace.
 
 ---
