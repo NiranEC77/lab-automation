@@ -124,10 +124,13 @@ sed -i -E 's/"version"[[:space:]]*=[[:space:]]*"[^"]*"/"version" = "3.0.19+vmwar
 echo "Patching VKS cluster class version..."
 sed -i 's/"builtin-generic-v3.4.0"/"builtin-generic-v3.6.2"/g' "$REPO_DIR/modules/vks-cluster/variables.tf"
 
+echo "Patching VKS storage class in K8s manifest format..."
+find "$REPO_DIR/modules/vks-cluster" -type f -exec sed -i 's/vsan-default-storage-policy/cluster-wld01-01a-vsan-storage-policy/g' {} +
+
 
 # --- 6. Drop YAML Manifests (Desktop) ---
-ARGOCD_YAML_FILE="$DESKTOP_DIR/argocd-service.yaml"
-VKS_YAML_FILE="$DESKTOP_DIR/vks-upgrade.yaml"
+ARGOCD_YAML_FILE="$DESKTOP_DIR/argocd-service-1.1.0.yaml"
+VKS_YAML_FILE="$DESKTOP_DIR/vks-upgrade-3.6.2.yaml"
 
 echo "Generating ArgoCD Service YAML at $ARGOCD_YAML_FILE..."
 cat << 'EOF' > "$ARGOCD_YAML_FILE"
