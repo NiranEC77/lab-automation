@@ -426,7 +426,7 @@ vcfa_refresh_token  = "$VCFA_TOKEN"
 EOF
 
 
-# --- 9. Terraform Execution Sequence & Bug Fix ---
+# --- 9. Terraform Execution Sequence & Bug Fixes ---
 echo "Initializing Terraform..."
 terraform init
 
@@ -447,29 +447,47 @@ chmod +x vcf-login.exp
 ./vcf-login.exp
 rm -f vcf-login.exp
 
+
 # --> CAPACITY BUG FIX START <--
 echo "Applying vCenter capacity/usage bugfix to unstick the namespace..."
 sleep 5 # Give k8s a few seconds to register the newly created namespace
 
-# Grab the dynamically created namespace name
 NS_NAME=$(kubectl get ns --no-headers | grep e2e-ns | awk '{print $1}')
 
 if [ ! -z "$NS_NAME" ]; then
-    echo "Found namespace: $NS_NAME. Sending limit update to vCenter API..."
-    
-    # 1. Authenticate to vCenter API
     SID=$(curl -k -s -X POST -u "administrator@wld.sso:$LAB_PASS" "https://vc-wld01-a.site-a.vcf.lab/rest/com/vmware/cis/session" | jq -r .value)
-    
-    # 2. Patch the namespace resource_spec with a dummy limit to simulate "Edit & Save" in the UI
     curl -k -s -X PATCH -H "vmware-api-session-id: $SID" -H "Content-Type: application/json" \
       "https://vc-wld01-a.site-a.vcf.lab/api/vcenter/namespaces/instances/$NS_NAME" \
       -d '{"resource_spec": {"memory_limit": 1048576}}'
-      
     echo "✅ Namespace capacity update automatically saved."
-else
-    echo "⚠️ Could not automatically detect the namespace name. You may need to manually save limits in vCenter."
 fi
 # --> CAPACITY BUG FIX END <--
+
+
+# --> CONTENT LIBRARY SSL FIX START <--
+echo "Patching Content Library SSL Certificates to bypass deployment errors..."
+LIB_IDS=$(curl -k -s -X GET -H "vmware-api-session-id: $SID" "https://vc-wld01-a.site-a.vcf.lab/api/vcenter/content/subscribed-library" | jq -r '.[]')
+
+for LIB_ID in $LIB_IDS; do
+    LIB_INFO=$(curl -k -s -X GET -H "vmware-api-session-id: $SID" "https://vc-wld01-a.site-a.vcf.lab/api/vcenter/content/subscribed-library/$LIB_ID")
+    URL=$(echo "$LIB_INFO" | jq -r '.subscription_info.subscription_url // empty')
+    
+    if [[ "$URL" == https* ]]; then
+        HOST=$(echo "$URL" | awk -F/ '{print $3}')
+        THUMBPRINT=$(echo -n | openssl s_client -connect ${HOST}:443 2>/dev/null | openssl x509 -noout -fingerprint -sha1 | cut -d'=' -f2)
+        
+        if [ ! -z "$THUMBPRINT" ]; then
+            echo "-> Trusting SSL thumbprint for $HOST ($THUMBPRINT)..."
+            curl -k -s -X PATCH -H "vmware-api-session-id: $SID" -H "Content-Type: application/json" \
+              -d "{\"subscription_info\": {\"ssl_thumbprint\": \"$THUMBPRINT\"}}" \
+              "https://vc-wld01-a.site-a.vcf.lab/api/vcenter/content/subscribed-library/$LIB_ID"
+              
+            echo "-> Forcing sync for library $LIB_ID..."
+            curl -k -s -X POST -H "vmware-api-session-id: $SID" "https://vc-wld01-a.site-a.vcf.lab/api/vcenter/content/subscribed-library/$LIB_ID?action=sync"
+        fi
+    fi
+done
+# --> CONTENT LIBRARY SSL FIX END <--
 
 
 echo "Phase 2: Applying the rest of the infrastructure (ArgoCD, K8s cluster, etc.)..."
