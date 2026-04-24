@@ -7,7 +7,7 @@ cd ~/Downloads &&
 git clone https://github.com/bstein-vmware/vcf9-adv-deploy-lab-setup.git &&
 cd vcf9-adv-deploy-lab-setup &&
 chmod +x setup.sh &&
-./setup.sh
+./setup.sh &&
 git clone https://github.com/NiranEC77/lab-automation
 
 change the script to executable
