@@ -10,10 +10,12 @@ LAB_DIR="$HOME/field-lab"
 BIN_DIR="$HOME/.local/bin"
 REPO_DIR="$LAB_DIR/vcfa-terraform-examples"
 DOWNLOADS_DIR="$HOME/Downloads"
+DESKTOP_DIR="$HOME/Desktop"
 
 mkdir -p "$LAB_DIR"
 mkdir -p "$BIN_DIR"
 mkdir -p "$DOWNLOADS_DIR"
+mkdir -p "$DESKTOP_DIR"
 
 export PATH="$BIN_DIR:$PATH"
 
@@ -22,7 +24,6 @@ echo "Checking prerequisites..."
 echo "$LAB_PASS" | sudo -S apt-get update -y
 echo "$LAB_PASS" | sudo -S apt-get --fix-broken install -y
 
-# ADDED 'expect' TO THE TOOLS LIST
 TOOLS="curl unzip git jq gpg zsh expect"
 for tool in $TOOLS; do
     if ! command -v $tool &> /dev/null; then
@@ -191,19 +192,44 @@ spec:
 EOF
 
 
-# --- 7. Manual Intervention & Token Capture ---
+# --- 7. Generate VCFA API Token & Save Password ---
+echo "Generating VCFA API Token programmatically..."
+
+# Retrieve the token via VCFA API
+VCFA_TOKEN=$(curl -k -s -X POST "https://auto-a.site-a.vcf.lab/csp/gateway/am/api/login?access_token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "all-apps-admin",
+    "password": "'"$LAB_PASS"'"
+  }' | jq -r '.refresh_token')
+
+if [ "$VCFA_TOKEN" == "null" ] || [ -z "$VCFA_TOKEN" ]; then
+    echo "❌ Failed to retrieve VCFA Token! Please check the API credentials."
+    exit 1
+else
+    echo "✅ Successfully retrieved VCFA API Token."
+fi
+
+# Drop password file on Desktop
+echo "Saving credentials to Desktop..."
+cat << EOF > "$DESKTOP_DIR/password.txt"
+Lab Password: $LAB_PASS
+VCFA API Token: $VCFA_TOKEN
+EOF
+
+
+# --- 8. Manual Intervention (Simplified) ---
 echo ""
 echo "====================================================================="
 echo "⚠️  MANUAL DEPLOYMENT REQUIRED ⚠️"
 echo "1. The ArgoCD Service YAML has been generated here:"
 echo "   $YAML_FILE"
 echo "2. Please deploy this service to your cluster NOW before continuing."
-echo "3. Go to the VCFA portal and generate your API token."
 echo "====================================================================="
 echo ""
-read -s -p "🔑 Once deployed, paste your VCFA API Token here and hit Enter (input hidden): " VCFA_TOKEN
+read -p "🎯 Once the service is deployed, press [Enter] to resume automation..."
 echo ""
-echo "Token captured! Resuming automation..."
+echo "Resuming automation..."
 
 cd "$REPO_DIR/argo-e2e"
 
@@ -225,7 +251,7 @@ vcfa_refresh_token  = "$VCFA_TOKEN"
 EOF
 
 
-# --- 8. Terraform Execution Sequence ---
+# --- 9. Terraform Execution Sequence ---
 echo "Initializing Terraform..."
 terraform init
 
@@ -233,8 +259,6 @@ echo "Phase 1: Targeting Supervisor Namespace creation..."
 terraform apply -target=module.supervisor_namespace -auto-approve
 
 echo "Creating VCF Supervisor Context (waiting for plugins if needed)..."
-
-# USING 'expect' TO AUTOMATE THE INTERACTIVE PROMPT
 expect -c "
 set timeout -1
 spawn vcf context create supervisor-ctx --endpoint 10.1.0.2 --username administrator@wld.sso --insecure-skip-tls-verify -t kubernetes --auth-type basic
@@ -251,5 +275,4 @@ echo "✅ Field Lab deployment successfully completed!"
 echo "========================================="
 echo "Dropping you into Oh My Zsh immediately..."
 
-# This replaces the running script with an interactive zsh session
 exec zsh
