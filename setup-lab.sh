@@ -9,12 +9,10 @@ echo "Verifying folder structure..."
 LAB_DIR="$HOME/field-lab"
 BIN_DIR="$HOME/.local/bin"
 REPO_DIR="$LAB_DIR/vcfa-terraform-examples"
-DOWNLOADS_DIR="$HOME/Downloads"
 DESKTOP_DIR="$HOME/Desktop"
 
 mkdir -p "$LAB_DIR"
 mkdir -p "$BIN_DIR"
-mkdir -p "$DOWNLOADS_DIR"
 mkdir -p "$DESKTOP_DIR"
 
 export PATH="$BIN_DIR:$PATH"
@@ -107,7 +105,7 @@ if ! grep -q ".lab_aliases" "$HOME/.zshrc"; then
 fi
 
 
-# --- 5. Pull Git Repo & Patch Module ---
+# --- 5. Pull Git Repo & Patch Modules ---
 echo "Managing the Terraform automation repo..."
 if [ -d "$REPO_DIR" ]; then
     echo "Repo already exists. Pulling latest updates without overwriting custom files..."
@@ -120,9 +118,12 @@ fi
 echo "Patching storage policy in the namespace module..."
 sed -i 's/"vSAN Default Storage Policy"/"cluster-wld01-01a vSAN Storage Policy"/g' "$REPO_DIR/modules/namespace/main.tf"
 
+echo "Patching ArgoCD version in the argocd module..."
+sed -i -E 's/version[[:space:]]*=[[:space:]]*"[^"]*"/version = "3.0.19+vmware.1-vks.1"/g' "$REPO_DIR/modules/argocd-instance/main.tf"
 
-# --- 6. Drop ArgoCD Service YAML ---
-YAML_FILE="$DOWNLOADS_DIR/argocd-service.yaml"
+
+# --- 6. Drop ArgoCD Service YAML (Home Directory) ---
+YAML_FILE="$HOME/argocd-service.yaml"
 echo "Generating ArgoCD Service YAML at $YAML_FILE..."
 
 cat << 'EOF' > "$YAML_FILE"
@@ -203,16 +204,13 @@ EOF
 # --- 8. Manual Intervention & Token Capture ---
 echo ""
 echo "====================================================================="
-echo "⚠️  MANUAL DEPLOYMENT REQUIRED ⚠️"
-echo "1. The ArgoCD Service YAML has been generated here:"
-echo "   $YAML_FILE"
-echo "2. Please open a new terminal and deploy this service to your cluster NOW."
-echo "   (Command: kubectl apply -f $YAML_FILE)"
-echo "3. Go to the VCFA portal (https://auto-a.site-a.vcf.lab) and generate your API token."
-echo "   (Credentials have been saved to your Desktop in password.txt)"
+echo "⚠️  MANUAL ACTION REQUIRED: DEPLOY ARGOCD & GET TOKEN"
+echo "1. Run this command NOW in a new tab to start installing the service:"
+echo "   kubectl apply -f ~/argocd-service.yaml"
+echo "2. WHILE it installs, go to VCFA (https://auto-a.site-a.vcf.lab) and get your API token."
 echo "====================================================================="
 echo ""
-read -s -p "🔑 Once deployed, paste your VCFA API Token here and hit Enter (input hidden): " VCFA_TOKEN
+read -s -p "🔑 Paste your VCFA API Token here and hit Enter (input hidden): " VCFA_TOKEN
 echo ""
 echo "Token captured! Resuming automation..."
 
@@ -236,7 +234,7 @@ vcfa_refresh_token  = "$VCFA_TOKEN"
 EOF
 
 
-# --- 9. Terraform Execution Sequence ---
+# --- 9. Terraform Execution Sequence & Bug Fix ---
 echo "Initializing Terraform..."
 terraform init
 
@@ -244,7 +242,6 @@ echo "Phase 1: Targeting Supervisor Namespace creation..."
 terraform apply -target=module.supervisor_namespace -auto-approve
 
 echo "Creating VCF Supervisor Context (waiting for plugins if needed)..."
-
 cat << EOF > vcf-login.exp
 #!/usr/bin/expect -f
 set timeout -1
@@ -257,6 +254,31 @@ EOF
 chmod +x vcf-login.exp
 ./vcf-login.exp
 rm -f vcf-login.exp
+
+# --> CAPACITY BUG FIX START <--
+echo "Applying vCenter capacity/usage bugfix to unstick the namespace..."
+sleep 5 # Give k8s a few seconds to register the newly created namespace
+
+# Grab the dynamically created namespace name
+NS_NAME=$(kubectl get ns --no-headers | grep e2e-ns | awk '{print $1}')
+
+if [ ! -z "$NS_NAME" ]; then
+    echo "Found namespace: $NS_NAME. Sending limit update to vCenter API..."
+    
+    # 1. Authenticate to vCenter API
+    SID=$(curl -k -s -X POST -u "administrator@wld.sso:$LAB_PASS" "https://vc-wld01-a.site-a.vcf.lab/rest/com/vmware/cis/session" | jq -r .value)
+    
+    # 2. Patch the namespace resource_spec with a dummy limit to simulate "Edit & Save" in the UI
+    curl -k -s -X PATCH -H "vmware-api-session-id: $SID" -H "Content-Type: application/json" \
+      "https://vc-wld01-a.site-a.vcf.lab/api/vcenter/namespaces/instances/$NS_NAME" \
+      -d '{"resource_spec": {"memory_limit": 1048576}}'
+      
+    echo "✅ Namespace capacity update automatically saved."
+else
+    echo "⚠️ Could not automatically detect the namespace name. You may need to manually save limits in vCenter."
+fi
+# --> CAPACITY BUG FIX END <--
+
 
 echo "Phase 2: Applying the rest of the infrastructure (ArgoCD, K8s cluster, etc.)..."
 terraform apply -auto-approve
