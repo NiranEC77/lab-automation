@@ -119,7 +119,6 @@ echo "Patching storage policy in the namespace module..."
 sed -i 's/"vSAN Default Storage Policy"/"cluster-wld01-01a vSAN Storage Policy"/g' "$REPO_DIR/modules/namespace/main.tf"
 
 echo "Patching ArgoCD version in the argocd module..."
-# Corrected regex to target "version" (with quotes)
 sed -i -E 's/"version"[[:space:]]*=[[:space:]]*"[^"]*"/"version" = "3.0.19+vmware.1-vks.1"/g' "$REPO_DIR/modules/argocd-instance/main.tf"
 
 
@@ -234,6 +233,7 @@ namespace           = "e2e-ns"
 cluster             = "e2e-niran-cls01"
 bootstrap_revision  = "1.0.1"
 vcfa_refresh_token  = "$VCFA_TOKEN"
+k8s_version         = "v1.33.3+vmware.1-fips-vkr.1"
 EOF
 
 
