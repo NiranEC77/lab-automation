@@ -438,9 +438,16 @@ cat << EOF > vcf-login.exp
 #!/usr/bin/expect -f
 set timeout -1
 spawn vcf context create supervisor-ctx --endpoint 10.1.0.2 --username administrator@wld.sso --insecure-skip-tls-verify -t kubernetes --auth-type basic
-expect -nocase "*password*"
-send "$LAB_PASS\r"
-expect eof
+expect {
+    -nocase "*already exists*" {
+        send_user "\nContext already exists, skipping creation...\n"
+        exit 0
+    }
+    -nocase "*password*" {
+        send "$LAB_PASS\r"
+        expect eof
+    }
+}
 EOF
 
 chmod +x vcf-login.exp
