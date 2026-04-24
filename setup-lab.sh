@@ -108,7 +108,14 @@ vcenter_server      = "vc-wld01-a.site-a.vcf.lab"
 vcenter_user        = "administrator@wld.sso"
 vcenter_password    = "VMware123!VMware123!"
 supervisor_cluster  = "domain-c8"
-namespace_name      = "field-e2e-lab-ns"
+region_name         = "us-west-region"
+vpc_name            = "us-west-region-default-vpc"
+zone_name           = "z-wld-a"
+vcfa_org            = "all-apps"
+vcfa_url            = "https://auto-a.site-a.vcf.lab"
+namespace           = "e2e-ns"
+cluster             = "e2e-niran-cls01"
+bootstrap_revision  = "1.0.1"
 EOF
 
 
