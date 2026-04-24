@@ -505,9 +505,13 @@ done
 # Re-enable exit-on-error for the final Terraform apply
 set -e
 
-
 echo "Phase 2: Applying the rest of the infrastructure (ArgoCD, K8s cluster, etc.)..."
-terraform apply -auto-approve
+# Run apply. If it fails due to the VKS provider bug, gracefully retry!
+terraform apply -auto-approve || {
+    echo "⚠️ Terraform encountered a known provider bug with VKS CRDs."
+    echo "⚠️ The cluster is building, syncing state and retrying..."
+    terraform apply -auto-approve
+}
 
 echo "========================================="
 echo "✅ Field Lab deployment successfully completed!"
