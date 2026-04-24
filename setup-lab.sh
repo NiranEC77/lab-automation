@@ -195,22 +195,27 @@ EOF
 # --- 7. Generate VCFA API Token & Save Password ---
 echo "Generating VCFA API Token programmatically..."
 
-# Retrieve the token via VCFA API
-VCFA_TOKEN=$(curl -k -s -X POST "https://auto-a.site-a.vcf.lab/csp/gateway/am/api/login?access_token" \
+# Capturing the RAW response first so we can see why it fails
+RAW_RESPONSE=$(curl -k -s -X POST "https://auto-a.site-a.vcf.lab/csp/gateway/am/api/login?access_token" \
   -H "Content-Type: application/json" \
   -d '{
     "username": "all-apps-admin",
-    "password": "'"$LAB_PASS"'"
-  }' | jq -r '.refresh_token')
+    "password": "'"$LAB_PASS"'",
+    "domain": "wld.sso"
+  }')
 
-if [ "$VCFA_TOKEN" == "null" ] || [ -z "$VCFA_TOKEN" ]; then
-    echo "❌ Failed to retrieve VCFA Token! Please check the API credentials."
+# Attempt to extract token
+VCFA_TOKEN=$(echo "$RAW_RESPONSE" | jq -r '.refresh_token // empty')
+
+if [ -z "$VCFA_TOKEN" ]; then
+    echo "❌ Failed to retrieve VCFA Token!"
+    echo "API Response: $RAW_RESPONSE"
+    echo "Please check your domain, username, or password."
     exit 1
 else
     echo "✅ Successfully retrieved VCFA API Token."
 fi
 
-# Drop password file on Desktop
 echo "Saving credentials to Desktop..."
 cat << EOF > "$DESKTOP_DIR/password.txt"
 Lab Password: $LAB_PASS
@@ -218,7 +223,7 @@ VCFA API Token: $VCFA_TOKEN
 EOF
 
 
-# --- 8. Manual Intervention (Simplified) ---
+# --- 8. Manual Intervention ---
 echo ""
 echo "====================================================================="
 echo "⚠️  MANUAL DEPLOYMENT REQUIRED ⚠️"
@@ -259,13 +264,19 @@ echo "Phase 1: Targeting Supervisor Namespace creation..."
 terraform apply -target=module.supervisor_namespace -auto-approve
 
 echo "Creating VCF Supervisor Context (waiting for plugins if needed)..."
-expect -c "
+
+cat << EOF > vcf-login.exp
+#!/usr/bin/expect -f
 set timeout -1
 spawn vcf context create supervisor-ctx --endpoint 10.1.0.2 --username administrator@wld.sso --insecure-skip-tls-verify -t kubernetes --auth-type basic
-expect \"*Password:*\"
-send \"$LAB_PASS\r\"
+expect -nocase "*password*"
+send "$LAB_PASS\r"
 expect eof
-"
+EOF
+
+chmod +x vcf-login.exp
+./vcf-login.exp
+rm -f vcf-login.exp
 
 echo "Phase 2: Applying the rest of the infrastructure (ArgoCD, K8s cluster, etc.)..."
 terraform apply -auto-approve
