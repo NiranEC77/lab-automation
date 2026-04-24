@@ -122,8 +122,8 @@ echo "Patching ArgoCD version in the argocd module..."
 sed -i -E 's/version[[:space:]]*=[[:space:]]*"[^"]*"/version = "3.0.19+vmware.1-vks.1"/g' "$REPO_DIR/modules/argocd-instance/main.tf"
 
 
-# --- 6. Drop ArgoCD Service YAML (Home Directory) ---
-YAML_FILE="$HOME/argocd-service.yaml"
+# --- 6. Drop ArgoCD Service YAML (Desktop) ---
+YAML_FILE="$DESKTOP_DIR/argocd-service.yaml"
 echo "Generating ArgoCD Service YAML at $YAML_FILE..."
 
 cat << 'EOF' > "$YAML_FILE"
@@ -207,7 +207,7 @@ echo "====================================================================="
 echo "⚠️  MANUAL ACTION REQUIRED: DEPLOY ARGOCD & GET TOKEN"
 echo "1. Log into vCenter and navigate to Workload Management -> Services."
 echo "2. Deploy the ArgoCD Service from the UI."
-echo "   (If needed, use the generated spec at ~/argocd-service.yaml)"
+echo "   (If needed, use the generated spec at $YAML_FILE)"
 echo "3. WHILE it installs, go to VCFA (https://auto-a.site-a.vcf.lab) and get your API token."
 echo "   (Credentials are saved on your Desktop in password.txt)"
 echo "====================================================================="
