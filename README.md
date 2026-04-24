@@ -30,7 +30,7 @@ This project provides a single-click, fully automated bootstrap script to set up
 
 ### ⚙️ Automated Lab Deployment
 * **Terraform Patching:** Automatically patches the cloned Terraform modules to use the correct vCenter Storage Policy (`cluster-wld01-01a vSAN Storage Policy`) and overrides the ArgoCD module to specifically deploy version `3.0.19+vmware.1-vks.1`.
-* **Manifest Generation:** Creates the `argocd-service.yaml` file directly in your Home (`~/`) directory.
+* **Manifest Generation:** Creates the `argocd-service.yaml` file directly on your Desktop (`~/Desktop/`).
 * **Credentials Backup:** Saves your Lab Password and standard admin username to `~/Desktop/password.txt`.
 * **Variable Injection:** Captures your VCFA API token securely and generates a complete `terraform.tfvars` file for the `argo-e2e` module.
 * **Phase 1 Execution:** Executes `terraform apply` targeted specifically at creating the vSphere Supervisor Namespace.
@@ -54,7 +54,7 @@ echo 'VMware123!VMware123!' | sudo -S sed -i '0,/multiverse/s/multiverse/multive
 
 The script will configure the OS, install all your tools, patch the Terraform modules, and then **pause**. You will see a warning message on your screen.
 
-1. **Deploy the ArgoCD Service:** Log into **vCenter**, navigate to **Workload Management** (or Supervisor Management) -> **Services**, and deploy the ArgoCD service through the UI. *(Note: The script generated `~/argocd-service.yaml` in your home folder in case you need to upload the service specification during this step).*
+1. **Deploy the ArgoCD Service:** Log into **vCenter**, navigate to **Workload Management** (or Supervisor Management) -> **Services**, and deploy the ArgoCD service through the UI. *(Note: The script generated `~/Desktop/argocd-service.yaml` in case you need to upload the service specification during this step).*
 2. **Get your Token:** *While the service is installing*, log into your VCFA portal (`https://auto-a.site-a.vcf.lab`) and generate a new API Token. (Your standard lab credentials are saved on your Desktop if you need them).
 
 ### Step 3: Resume the Automation
