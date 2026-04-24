@@ -3,33 +3,33 @@
 set -e
 
 # --- 1. Variables & Folder Structure ---
+LAB_PASS="VMware123!VMware123!"
+
 echo "Verifying folder structure..."
 LAB_DIR="$HOME/field-lab"
 BIN_DIR="$HOME/.local/bin"
 REPO_DIR="$LAB_DIR/vcfa-terraform-examples"
 DOWNLOADS_DIR="$HOME/Downloads"
 
-# Use mkdir -p which creates the directory only if it doesn't exist, and leaves contents alone if it does
 mkdir -p "$LAB_DIR"
 mkdir -p "$BIN_DIR"
 mkdir -p "$DOWNLOADS_DIR"
 
-# Temporarily add to path for this session
 export PATH="$BIN_DIR:$PATH"
 
 # --- 2. Install CLIs & Prerequisites ---
 echo "Checking prerequisites..."
-sudo apt-get update -y
-sudo apt-get --fix-broken install -y
+echo "$LAB_PASS" | sudo -S apt-get update -y
+echo "$LAB_PASS" | sudo -S apt-get --fix-broken install -y
 
 TOOLS="curl unzip git jq gpg zsh"
 for tool in $TOOLS; do
     if ! command -v $tool &> /dev/null; then
         echo "Installing $tool..."
         if [ "$tool" = "curl" ]; then
-            sudo apt-get install -y curl libcurl4t64 || sudo apt-get install -y curl
+            echo "$LAB_PASS" | sudo -S apt-get install -y curl libcurl4t64 || echo "$LAB_PASS" | sudo -S apt-get install -y curl
         else
-            sudo apt-get install -y $tool
+            echo "$LAB_PASS" | sudo -S apt-get install -y $tool
         fi
     else
         echo "$tool is already installed. Skipping."
@@ -39,7 +39,7 @@ done
 for pkg in apt-transport-https ca-certificates; do
     if ! dpkg -s $pkg >/dev/null 2>&1; then
         echo "Installing $pkg..."
-        sudo apt-get install -y $pkg
+        echo "$LAB_PASS" | sudo -S apt-get install -y $pkg
     fi
 done
 
@@ -52,10 +52,14 @@ fi
 
 if ! command -v terraform &> /dev/null; then
     echo "Installing Terraform..."
+    # Refresh sudo auth right before piped commands so we don't break the data streams
+    echo "$LAB_PASS" | sudo -S true 
+    
     wget -O- https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
     echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
-    sudo apt-get update -y
-    sudo apt-get install -y terraform
+    
+    echo "$LAB_PASS" | sudo -S apt-get update -y
+    echo "$LAB_PASS" | sudo -S apt-get install -y terraform
 fi
 
 
@@ -63,7 +67,7 @@ fi
 echo "Setting up Zsh and Oh My Zsh..."
 if [ "$SHELL" != "$(which zsh)" ]; then
     echo "Changing default shell to zsh..."
-    sudo chsh -s $(which zsh) $(whoami)
+    echo "$LAB_PASS" | sudo -S chsh -s $(which zsh) $(whoami)
 fi
 
 if [ ! -d "$HOME/.oh-my-zsh" ]; then
@@ -81,6 +85,14 @@ fi
 
 sed -i 's/^ZSH_THEME=.*/ZSH_THEME="fino-time"/' "$HOME/.zshrc"
 sed -i 's/^plugins=(git)/plugins=(git zsh-autosuggestions zsh-syntax-highlighting kubectl)/' "$HOME/.zshrc"
+
+# Force GNOME Terminal to load Zsh immediately without requiring a full logout
+if ! grep -q "exec zsh" "$HOME/.bashrc"; then
+    echo -e "\n# Launch Zsh automatically" >> "$HOME/.bashrc"
+    echo 'if [ -t 1 ] && [ -z "$ZSH_VERSION" ]; then' >> "$HOME/.bashrc"
+    echo '    exec zsh' >> "$HOME/.bashrc"
+    echo 'fi' >> "$HOME/.bashrc"
+fi
 
 
 # --- 4. Setup Aliases ---
@@ -221,20 +233,19 @@ terraform init
 echo "Phase 1: Targeting Supervisor Namespace creation..."
 terraform apply -target=module.supervisor_namespace -auto-approve
 
+echo "Creating VCF Supervisor Context..."
+# Passing password via env var and stdin to handle different CLI auth prompt mechanisms silently
+export VCF_PASSWORD="$LAB_PASS"
+export KUBECTL_VSPHERE_PASSWORD="$LAB_PASS"
+echo "$LAB_PASS" | vcf context create \
+  --endpoint 10.1.0.2 \
+  --username administrator@wld.sso \
+  --insecure-skip-tls-verify \
+  -t kubernetes \
+  --auth-type basic
+
 echo "Phase 2: Applying the rest of the infrastructure (ArgoCD, K8s cluster, etc.)..."
 terraform apply -auto-approve
-
-
-# --- 9. Create Contexts via VCF CLI ---
-echo "Setting up Supervisor and VCFA contexts..."
-
-# SUPERVISOR CONTEXT
-echo "Logging into Supervisor Cluster..."
-# REPLACE WITH YOUR SUPERVISOR LOGIN COMMAND
-
-# VCFA CONTEXT
-echo "Logging into VCFA..."
-# REPLACE WITH YOUR VCFA LOGIN COMMAND
 
 echo "========================================="
 echo "✅ Field Lab deployment successfully completed!"
