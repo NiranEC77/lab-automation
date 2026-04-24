@@ -121,12 +121,16 @@ sed -i 's/"vSAN Default Storage Policy"/"cluster-wld01-01a vSAN Storage Policy"/
 echo "Patching ArgoCD version in the argocd module..."
 sed -i -E 's/"version"[[:space:]]*=[[:space:]]*"[^"]*"/"version" = "3.0.19+vmware.1-vks.1"/g' "$REPO_DIR/modules/argocd-instance/main.tf"
 
+echo "Patching VKS cluster class version..."
+sed -i 's/"builtin-generic-v3.4.0"/"builtin-generic-v3.6.2"/g' "$REPO_DIR/modules/vks-cluster/variables.tf"
 
-# --- 6. Drop ArgoCD Service YAML (Desktop) ---
-YAML_FILE="$DESKTOP_DIR/argocd-service.yaml"
-echo "Generating ArgoCD Service YAML at $YAML_FILE..."
 
-cat << 'EOF' > "$YAML_FILE"
+# --- 6. Drop YAML Manifests (Desktop) ---
+ARGOCD_YAML_FILE="$DESKTOP_DIR/argocd-service.yaml"
+VKS_YAML_FILE="$DESKTOP_DIR/vks-upgrade.yaml"
+
+echo "Generating ArgoCD Service YAML at $ARGOCD_YAML_FILE..."
+cat << 'EOF' > "$ARGOCD_YAML_FILE"
 apiVersion: data.packaging.carvel.dev/v1alpha1
 kind: Package
 metadata:
@@ -192,6 +196,187 @@ spec:
   shortDescription: This service allows users to self-service ArgoCD instance in different namespaces.
 EOF
 
+echo "Generating VKS Upgrade YAML at $VKS_YAML_FILE..."
+cat << 'EOF' > "$VKS_YAML_FILE"
+apiVersion: data.packaging.carvel.dev/v1alpha1
+kind: Package
+metadata:
+  name: tkg.vsphere.vmware.com.3.6.2+v1.35
+  annotations:
+    appplatform.vmware.com/source-version-upgrade-constraints: '>=3.3.0'
+    appplatform.vmware.com/compatibility-check_service: upgrade-compatibility-service
+    appplatform.vmware.com/compatibility-check_port: "80"
+    appplatform.vmware.com/compatibility-check_protocol: https
+    appplatform.vmware.com/compatibility-check_url: ucs/v2/compatibility
+    appplatform.vmware.com/compatibility-check_method: POST
+    appplatform.vmware.com/compatibility-check_ca_secret: ucs-service-ca-cert
+    appplatform.vmware.com/required_capability.0: TKG_SupervisorService_Supported
+    appplatform.vmware.com/compatibility-check_data: |
+      [
+        {
+          "version": "v1",
+          "offers": {
+            "VKS": {
+              "versions": {
+                "vmware.com/gcccontroller": [
+                  "3.6.2"
+                ]
+              }
+            },
+            "TKGSvS": {
+              "versions": {
+                "vmware.com/gccontroller": [
+                  "3.3.0",
+                  "3.3.3",
+                  "3.4.0",
+                  "3.4.1",
+                  "3.4.2",
+                  "3.5.0",
+                  "3.5.1",
+                  "3.6.0",
+                  "3.6.1",
+                  "3.6.2"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    supportbundler.vmware.com/manifest: tkgs-support-bundler-cm
+    appplatform.vmware.com/requires-ha-supervisor: "true"
+spec:
+  refName: tkg.vsphere.vmware.com
+  version: 3.6.2+v1.35
+  kubernetesVersionSelection:
+    constraints: '>1.30.0'
+  template:
+    spec:
+      fetch:
+      - imgpkgBundle:
+          image: projects.packages.broadcom.com/vsphere/iaas/vsphere-kubernetes-service/3.6.2/vsphere-kubernetes-service:3.6.2
+      template:
+      - ytt:
+          paths:
+          - config/
+      - kbld:
+          paths:
+          - '-'
+          - .imgpkg/images.yml
+      deploy:
+      - kapp: {}
+  valuesSchema:
+    openAPIv3:
+      type: object
+      additionalProperties: false
+      properties:
+        cpVMSize:
+          type: string
+          description: cpVMSize indicates the capacity of the Supervisor Control Plane. It's derived from Supervisor's tshirt size.
+          default: LARGE
+        ssoDomain:
+          type: string
+          description: ssoDomain indicates the name of the default SSO domain configured in vCenter.
+          default: vsphere.local
+        networkProvider:
+          type: string
+          description: networkProvider indicates the Network Provider used on Supervisor. (e.g. NSX or vsphere-network)
+          default: NSX
+        tmcNamespace:
+          type: string
+          description: tmcNamespace indicates the namespace used for TMC to be deployed.
+          default: tmc-svc-namespace
+        namespacesCLIPluginVersion:
+          description: namespacesCLIPluginVersion indicates the Supervisor recommended namespaces CLIPlugin CR version.
+          type: string
+          default: v1.0.0
+        vcPublicKeys:
+          type: string
+          description: vcPublicKeys indicates the base64 encoded vCenter OIDC issuer, client audience and the public keys in JWKS format.
+          default: a2V5cw==
+          contentEncoding: base64
+        podVMSupported:
+          type: boolean
+          description: podVMSupported indicates if the Supervisor supports PodVMs.
+          default: false
+        stretchedSupervisor:
+          type: boolean
+          description: This field indicates whether the environment is a Stretched Supervisor
+          default: false
+        cloudVC:
+          type: boolean
+          description: cloudVC indicates if the vCenter is deployed on cloud.
+          default: false
+        controlPlaneCount:
+          type: integer
+          description: The value indicates the number of control planes enabled on the Supervisor.
+          default: 3
+        controlPlaneResources:
+          type: object
+          properties:
+            memoryMiB:
+              type: integer
+              default: 0
+              description: The value indicates the amount of memory available on the control plane VMs.
+            cpuCount:
+              type: integer
+              default: 0
+              description: The value indicates the number of CPUs available on the control plane VMs.
+        misconfiguredSoftwareChecksDryrunIntervalDuration:
+          type: string
+          description: Duration after which the dry-run controller should be run again. Examples are '24h', '1d23h45m12s' etc. Defaults to 24h.
+          default: 24h
+        capabilities:
+          deprecated: true
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              value:
+                type: boolean
+            required:
+            - name
+            - value
+        capabilitiesStatus:
+          type: object
+          properties:
+            services:
+              additionalProperties:
+                additionalProperties:
+                  properties:
+                    activated:
+                      type: boolean
+                  required:
+                  - activated
+                  type: object
+                type: object
+              type: object
+            supervisor:
+              additionalProperties:
+                properties:
+                  activated:
+                    type: boolean
+                required:
+                - activated
+                type: object
+              type: object
+---
+apiVersion: data.packaging.carvel.dev/v1alpha1
+kind: PackageMetadata
+metadata:
+  name: tkg.vsphere.vmware.com
+spec:
+  displayName: Kubernetes Service
+  longDescription: Kubernetes Service is a turnkey solution for deploying, running, and managing enterprise-grade Kubernetes clusters for hosting applications on Supervisor.
+  shortDescription: Cluster management
+  providerName: VMware
+  maintainers:
+  - name: ""
+  categories:
+  - cluster management
+EOF
+
 
 # --- 7. Save Credentials to Desktop ---
 echo "Saving credentials to Desktop..."
@@ -204,11 +389,13 @@ EOF
 # --- 8. Manual Intervention & Token Capture ---
 echo ""
 echo "====================================================================="
-echo "⚠️  MANUAL ACTION REQUIRED: DEPLOY ARGOCD & GET TOKEN"
+echo "⚠️  MANUAL ACTION REQUIRED: DEPLOY ARGOCD, UPGRADE VKS, & GET TOKEN"
 echo "1. Log into vCenter and navigate to Workload Management -> Services."
-echo "2. Deploy the ArgoCD Service from the UI."
-echo "   (If needed, use the generated spec at $YAML_FILE)"
-echo "3. WHILE it installs, go to VCFA (https://auto-a.site-a.vcf.lab) and get your API token."
+echo "2. Deploy the ArgoCD Service."
+echo "   (If needed, use $ARGOCD_YAML_FILE)"
+echo "3. Upgrade the vSphere Kubernetes Service (VKS)."
+echo "   (If needed, use $VKS_YAML_FILE)"
+echo "4. WHILE they install, go to VCFA (https://auto-a.site-a.vcf.lab) and get your API token."
 echo "   (Credentials are saved on your Desktop in password.txt)"
 echo "====================================================================="
 echo ""
@@ -233,7 +420,6 @@ namespace           = "e2e-ns"
 cluster             = "e2e-niran-cls01"
 bootstrap_revision  = "1.0.1"
 vcfa_refresh_token  = "$VCFA_TOKEN"
-k8s_version         = "v1.33.3+vmware.1-fips-vkr.1"
 EOF
 
 
