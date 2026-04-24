@@ -513,6 +513,39 @@ terraform apply -auto-approve || {
     terraform apply -auto-approve
 }
 
+
+# --- 10. Post-Deployment Context Configuration ---
+echo "Configuring final VCF CLI contexts..."
+
+# 1. Create the VCFA Context
+echo "-> Creating VCFA context..."
+vcf context create vcfa \
+  --endpoint auto-a.site-a.vcf.lab \
+  --api-token "$VCFA_TOKEN" \
+  --tenant-name all-apps \
+  --insecure-skip-tls-verify
+
+# 2. Switch to the newly created project context
+echo "-> Switching to VCFA project context..."
+vcf context use "vcfa:${NS_NAME}:default-project"
+
+# 3. Register JWT authenticator for the cluster
+echo "-> Registering JWT authenticator..."
+vcf cluster register-vcfa-jwt-authenticator e2e-niran-cls01
+
+# 4. Grab the kubeconfig
+echo "-> Exporting cluster kubeconfig..."
+mkdir -p ~/.kube
+vcf cluster kubeconfig get e2e-niran-cls01 --export-file ~/.kube/config
+
+# 5. Create the workload cluster context natively (bypassing interactive prompts)
+echo "-> Creating context for the new cluster..."
+vcf context create e2e-niran-cls01 \
+  --kubeconfig ~/.kube/config \
+  --kubecontext "vcf-cli-e2e-niran-cls01-${NS_NAME}@e2e-niran-cls01-${NS_NAME}" \
+  --type cloud-consumption-interface \
+  --api-token "$VCFA_TOKEN"
+
 echo "========================================="
 echo "✅ Field Lab deployment successfully completed!"
 echo "========================================="
