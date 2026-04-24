@@ -448,11 +448,15 @@ chmod +x vcf-login.exp
 rm -f vcf-login.exp
 
 
+# Temporarily disable exit-on-error. These API fixes are "best effort" 
+# and shouldn't crash the entire deployment if VMware changes an endpoint!
+set +e
+
 # --> CAPACITY BUG FIX START <--
 echo "Applying vCenter capacity/usage bugfix to unstick the namespace..."
 sleep 5 # Give k8s a few seconds to register the newly created namespace
 
-NS_NAME=$(kubectl get ns --no-headers | grep e2e-ns | awk '{print $1}')
+NS_NAME=$(kubectl get ns --no-headers 2>/dev/null | grep e2e-ns | awk '{print $1}')
 
 if [ ! -z "$NS_NAME" ]; then
     SID=$(curl -k -s -X POST -u "administrator@wld.sso:$LAB_PASS" "https://vc-wld01-a.site-a.vcf.lab/rest/com/vmware/cis/session" | jq -r .value)
@@ -466,11 +470,13 @@ fi
 
 # --> CONTENT LIBRARY SSL FIX START <--
 echo "Patching Content Library SSL Certificates to bypass deployment errors..."
-LIB_IDS=$(curl -k -s -X GET -H "vmware-api-session-id: $SID" "https://vc-wld01-a.site-a.vcf.lab/api/vcenter/content/subscribed-library" | jq -r '.[]')
+
+# Fetching the Content Libraries
+LIB_IDS=$(curl -k -s -X GET -H "vmware-api-session-id: $SID" "https://vc-wld01-a.site-a.vcf.lab/api/content/subscribed-library" | jq -r '.[]' 2>/dev/null)
 
 for LIB_ID in $LIB_IDS; do
-    LIB_INFO=$(curl -k -s -X GET -H "vmware-api-session-id: $SID" "https://vc-wld01-a.site-a.vcf.lab/api/vcenter/content/subscribed-library/$LIB_ID")
-    URL=$(echo "$LIB_INFO" | jq -r '.subscription_info.subscription_url // empty')
+    LIB_INFO=$(curl -k -s -X GET -H "vmware-api-session-id: $SID" "https://vc-wld01-a.site-a.vcf.lab/api/content/subscribed-library/$LIB_ID" 2>/dev/null)
+    URL=$(echo "$LIB_INFO" | jq -r '.subscription_info.subscription_url // empty' 2>/dev/null)
     
     if [[ "$URL" == https* ]]; then
         HOST=$(echo "$URL" | awk -F/ '{print $3}')
@@ -480,14 +486,17 @@ for LIB_ID in $LIB_IDS; do
             echo "-> Trusting SSL thumbprint for $HOST ($THUMBPRINT)..."
             curl -k -s -X PATCH -H "vmware-api-session-id: $SID" -H "Content-Type: application/json" \
               -d "{\"subscription_info\": {\"ssl_thumbprint\": \"$THUMBPRINT\"}}" \
-              "https://vc-wld01-a.site-a.vcf.lab/api/vcenter/content/subscribed-library/$LIB_ID"
+              "https://vc-wld01-a.site-a.vcf.lab/api/content/subscribed-library/$LIB_ID"
               
             echo "-> Forcing sync for library $LIB_ID..."
-            curl -k -s -X POST -H "vmware-api-session-id: $SID" "https://vc-wld01-a.site-a.vcf.lab/api/vcenter/content/subscribed-library/$LIB_ID?action=sync"
+            curl -k -s -X POST -H "vmware-api-session-id: $SID" "https://vc-wld01-a.site-a.vcf.lab/api/content/subscribed-library/$LIB_ID?action=sync"
         fi
     fi
 done
 # --> CONTENT LIBRARY SSL FIX END <--
+
+# Re-enable exit-on-error for the final Terraform apply
+set -e
 
 
 echo "Phase 2: Applying the rest of the infrastructure (ArgoCD, K8s cluster, etc.)..."
