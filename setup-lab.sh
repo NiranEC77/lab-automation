@@ -234,13 +234,13 @@ echo "Phase 1: Targeting Supervisor Namespace creation..."
 terraform apply -target=module.supervisor_namespace -auto-approve
 
 echo "Creating VCF Supervisor Context..."
-export VCF_PASSWORD="$LAB_PASS"
 export KUBECTL_VSPHERE_PASSWORD="$LAB_PASS"
 
-# ADDED 'supervisor-ctx' as the context name so it doesn't prompt for it
-echo "$LAB_PASS" | vcf context create supervisor-ctx \
+# Removed the pipe and added the --password flag directly
+vcf context create supervisor-ctx \
   --endpoint 10.1.0.2 \
   --username administrator@wld.sso \
+  --password "$LAB_PASS" \
   --insecure-skip-tls-verify \
   -t kubernetes \
   --auth-type basic
