@@ -119,7 +119,8 @@ echo "Patching storage policy in the namespace module..."
 sed -i 's/"vSAN Default Storage Policy"/"cluster-wld01-01a vSAN Storage Policy"/g' "$REPO_DIR/modules/namespace/main.tf"
 
 echo "Patching ArgoCD version in the argocd module..."
-sed -i -E 's/version[[:space:]]*=[[:space:]]*"[^"]*"/version = "3.0.19+vmware.1-vks.1"/g' "$REPO_DIR/modules/argocd-instance/main.tf"
+# Corrected regex to target "version" (with quotes)
+sed -i -E 's/"version"[[:space:]]*=[[:space:]]*"[^"]*"/"version" = "3.0.19+vmware.1-vks.1"/g' "$REPO_DIR/modules/argocd-instance/main.tf"
 
 
 # --- 6. Drop ArgoCD Service YAML (Desktop) ---
