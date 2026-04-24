@@ -86,7 +86,7 @@ fi
 sed -i 's/^ZSH_THEME=.*/ZSH_THEME="fino-time"/' "$HOME/.zshrc"
 sed -i 's/^plugins=(git)/plugins=(git zsh-autosuggestions zsh-syntax-highlighting kubectl)/' "$HOME/.zshrc"
 
-# Force GNOME Terminal to load Zsh immediately without requiring a full logout
+# Force GNOME Terminal to load Zsh immediately on new windows without requiring a full logout
 if ! grep -q "exec zsh" "$HOME/.bashrc"; then
     echo -e "\n# Launch Zsh automatically" >> "$HOME/.bashrc"
     echo 'if [ -t 1 ] && [ -z "$ZSH_VERSION" ]; then' >> "$HOME/.bashrc"
@@ -156,99 +156,4 @@ spec:
       properties:
         bundleUrl:
           default: ""
-          description: package bundle URL for the argocd carvel package
-          type: string
-        capabilities:
-          default: []
-          description: Array of capabilities passed by supervisor service framework
-          items:
-            additionalProperties: false
-            properties:
-              name:
-                default: ""
-                type: string
-              value:
-                default: false
-                type: boolean
-            type: object
-          type: array
-        namespace:
-          default: argocd-service
-          description: argocd-service's namespace
-          type: string
-      type: object
-  version: 1.1.0-25100889
----
-apiVersion: data.packaging.carvel.dev/v1alpha1
-kind: PackageMetadata
-metadata:
-  creationTimestamp: null
-  name: argocd-service.vsphere.vmware.com
-spec:
-  displayName: ArgoCD Service
-  providerName: Broadcom
-  longDescription: This service allows users to self-service ArgoCD instance in different namespaces.
-  shortDescription: This service allows users to self-service ArgoCD instance in different namespaces.
-EOF
-
-
-# --- 7. Manual Intervention & Token Capture ---
-echo ""
-echo "====================================================================="
-echo "⚠️  MANUAL DEPLOYMENT REQUIRED ⚠️"
-echo "1. The ArgoCD Service YAML has been generated here:"
-echo "   $YAML_FILE"
-echo "2. Please deploy this service to your cluster NOW before continuing."
-echo "3. Go to the VCFA portal and generate your API token."
-echo "====================================================================="
-echo ""
-read -s -p "🔑 Once deployed, paste your VCFA API Token here and hit Enter (input hidden): " VCFA_TOKEN
-echo ""
-echo "Token captured! Resuming automation..."
-
-cd "$REPO_DIR/argo-e2e"
-
-echo "Injecting static and dynamic variables..."
-cat << EOF > terraform.tfvars
-vcenter_server      = "vc-wld01-a.site-a.vcf.lab"
-vcenter_user        = "administrator@wld.sso"
-vcenter_password    = "VMware123!VMware123!"
-supervisor_cluster  = "domain-c8"
-region_name         = "us-west-region"
-vpc_name            = "us-west-region-default-vpc"
-zone_name           = "z-wld-a"
-vcfa_org            = "all-apps"
-vcfa_url            = "https://auto-a.site-a.vcf.lab"
-namespace           = "e2e-ns"
-cluster             = "e2e-niran-cls01"
-bootstrap_revision  = "1.0.1"
-vcfa_refresh_token  = "$VCFA_TOKEN"
-EOF
-
-
-# --- 8. Terraform Execution Sequence ---
-echo "Initializing Terraform..."
-terraform init
-
-echo "Phase 1: Targeting Supervisor Namespace creation..."
-terraform apply -target=module.supervisor_namespace -auto-approve
-
-echo "Creating VCF Supervisor Context..."
-export KUBECTL_VSPHERE_PASSWORD="$LAB_PASS"
-
-# Removed the pipe and added the --password flag directly
-vcf context create supervisor-ctx \
-  --endpoint 10.1.0.2 \
-  --username administrator@wld.sso \
-  --password "$LAB_PASS" \
-  --insecure-skip-tls-verify \
-  -t kubernetes \
-  --auth-type basic
-
-echo "Phase 2: Applying the rest of the infrastructure (ArgoCD, K8s cluster, etc.)..."
-terraform apply -auto-approve
-
-echo "========================================="
-echo "✅ Field Lab deployment successfully completed!"
-echo "========================================="
-echo "Please completely close this terminal window and open a new one to start using Zsh and your new plugins!"
+          description: package bundle URL for the arg
