@@ -70,7 +70,6 @@ fi
 # Install VCF CLI (Placeholder)
 echo "Setting up VCF CLI..."
 # ADD VCF CLI INSTALLATION COMMANDS HERE
-# Example: curl -L <url-to-vcf-cli> -o vcf && chmod +x vcf && mv vcf $BIN_DIR/
 
 
 # --- 3. Setup Aliases ---
@@ -83,11 +82,10 @@ EOF
 if ! grep -q ".lab_aliases" "$HOME/.bashrc"; then
     echo "source $HOME/.lab_aliases" >> "$HOME/.bashrc"
 fi
-# Source it for the current script execution
 source "$HOME/.lab_aliases"
 
 
-# --- 4. Pull Git Repo ---
+# --- 4. Pull Git Repo & Patch Module ---
 echo "Cloning the Terraform automation repo..."
 if [ -d "$REPO_DIR" ]; then
     echo "Repo already exists. Pulling latest..."
@@ -97,13 +95,23 @@ else
     git clone https://github.com/warroyo/vcfa-terraform-examples "$REPO_DIR"
 fi
 
+echo "Patching storage policy in the namespace module..."
+# Replaces the default vSAN policy with the specific one for your cluster
+sed -i 's/"vSAN Default Storage Policy"/"cluster-wld01-01a vSAN Storage Policy"/g' "$REPO_DIR/modules/namespace/main.tf"
 
-# --- 5. Add Static Variables File ---
+
+# --- 5. Interactive Prompts & Variables ---
+# Prompt securely for the API Token
+echo ""
+read -s -p "🔑 Enter your VCFA API Token (input will be hidden): " VCFA_TOKEN
+echo ""
+echo "Token captured."
+
 # Navigating to the argo-e2e directory
 cd "$REPO_DIR/argo-e2e"
 
-echo "Injecting static variables..."
-cat << 'EOF' > terraform.tfvars
+echo "Injecting static and dynamic variables..."
+cat << EOF > terraform.tfvars
 vcenter_server      = "vc-wld01-a.site-a.vcf.lab"
 vcenter_user        = "administrator@wld.sso"
 vcenter_password    = "VMware123!VMware123!"
@@ -116,6 +124,7 @@ vcfa_url            = "https://auto-a.site-a.vcf.lab"
 namespace           = "e2e-ns"
 cluster             = "e2e-niran-cls01"
 bootstrap_revision  = "1.0.1"
+vcfa_refresh_token  = "$VCFA_TOKEN"
 EOF
 
 
@@ -136,12 +145,10 @@ echo "Setting up Supervisor and VCFA contexts..."
 # SUPERVISOR CONTEXT
 echo "Logging into Supervisor Cluster..."
 # REPLACE WITH YOUR SUPERVISOR LOGIN COMMAND
-# Example: vcf login --server <supervisor-ip> --user <user> --password <pass> --insecure
 
 # VCFA CONTEXT
 echo "Logging into VCFA..."
 # REPLACE WITH YOUR VCFA LOGIN COMMAND
-# Example: kubectl vsphere login --server <vcfa-ip> --insecure-skip-tls-verify ...
 
 echo "========================================="
 echo "✅ Field Lab deployment successfully completed!"
