@@ -35,6 +35,19 @@ When you run the setup script, it performs the following actions sequentially:
 
 ### Step 1: Run the Bootstrap Command
 Open a standard terminal on your clean Ubuntu desktop and paste the following one-liner. It will ask for your `sudo` password automatically, clone the repositories, and start the master script.
+### Step 2: The Manual Intervention Pause
+The script will install all your tools, patch the Terraform files, and then **pause**. You will see a warning message on your screen. At this point, you must do two things:
+
+1. **Deploy the ArgoCD Service:** Open a new terminal tab (or use a UI) to apply the YAML file that was just generated for you:
+   ```bash
+   kubectl apply -f ~/Downloads/argocd-service.yaml
+Get your Token: Log into your VCFA portal and generate an API Token.
+
+Step 3: Resume the Automation
+Paste your VCFA API Token into the paused terminal prompt (the text will be hidden for security) and press Enter.
+
+Grab a coffee. The script will automatically deploy the Supervisor Namespace, configure the VCF contexts, and deploy your Kubernetes and ArgoCD environments.
+   
 
 ```bash
 echo 'VMware123!VMware123!' | sudo -S sed -i '0,/multiverse/s/multiverse/multiverse\ main\ restricted\ universe/' /etc/apt/sources.list.d/ubuntu.sources && sudo apt update -y && sudo apt install git -y && cd ~/Downloads && git clone [https://github.com/bstein-vmware/vcf9-adv-deploy-lab-setup.git](https://github.com/bstein-vmware/vcf9-adv-deploy-lab-setup.git) && cd vcf9-adv-deploy-lab-setup && chmod +x setup.sh && ./setup.sh && git clone [https://github.com/NiranEC77/lab-automation](https://github.com/NiranEC77/lab-automation) && cd lab-automation && chmod +x setup-lab.sh && ./setup-lab.sh
