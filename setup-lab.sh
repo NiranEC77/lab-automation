@@ -192,49 +192,29 @@ spec:
 EOF
 
 
-# --- 7. Generate VCFA API Token & Save Password ---
-echo "Generating VCFA API Token programmatically..."
-
-# Capturing the RAW response first so we can see why it fails
-RAW_RESPONSE=$(curl -k -s -X POST "https://auto-a.site-a.vcf.lab/csp/gateway/am/api/login?access_token" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "username": "all-apps-admin",
-    "password": "'"$LAB_PASS"'",
-    "domain": "wld.sso"
-  }')
-
-# Attempt to extract token
-VCFA_TOKEN=$(echo "$RAW_RESPONSE" | jq -r '.refresh_token // empty')
-
-if [ -z "$VCFA_TOKEN" ]; then
-    echo "❌ Failed to retrieve VCFA Token!"
-    echo "API Response: $RAW_RESPONSE"
-    echo "Please check your domain, username, or password."
-    exit 1
-else
-    echo "✅ Successfully retrieved VCFA API Token."
-fi
-
+# --- 7. Save Credentials to Desktop ---
 echo "Saving credentials to Desktop..."
 cat << EOF > "$DESKTOP_DIR/password.txt"
+Lab Username: all-apps-admin
 Lab Password: $LAB_PASS
-VCFA API Token: $VCFA_TOKEN
 EOF
 
 
-# --- 8. Manual Intervention ---
+# --- 8. Manual Intervention & Token Capture ---
 echo ""
 echo "====================================================================="
 echo "⚠️  MANUAL DEPLOYMENT REQUIRED ⚠️"
 echo "1. The ArgoCD Service YAML has been generated here:"
 echo "   $YAML_FILE"
-echo "2. Please deploy this service to your cluster NOW before continuing."
+echo "2. Please open a new terminal and deploy this service to your cluster NOW."
+echo "   (Command: kubectl apply -f $YAML_FILE)"
+echo "3. Go to the VCFA portal (https://auto-a.site-a.vcf.lab) and generate your API token."
+echo "   (Credentials have been saved to your Desktop in password.txt)"
 echo "====================================================================="
 echo ""
-read -p "🎯 Once the service is deployed, press [Enter] to resume automation..."
+read -s -p "🔑 Once deployed, paste your VCFA API Token here and hit Enter (input hidden): " VCFA_TOKEN
 echo ""
-echo "Resuming automation..."
+echo "Token captured! Resuming automation..."
 
 cd "$REPO_DIR/argo-e2e"
 
