@@ -92,13 +92,11 @@ if ! grep -q ".lab_aliases" "$HOME/.zshrc"; then
     echo "source $HOME/.lab_aliases" >> "$HOME/.zshrc"
 fi
 
-
-# --- 4. Trust VCFA Certificate Chain ---
+# --- 4. Trust VCFA Certificate Chain (THE FIX) ---
 echo "Downloading and trusting VCFA Certificate Chain natively in Ubuntu..."
 # We use openssl to pull the cert, format it, and inject it into the OS trust store
 openssl s_client -showcerts -connect $VCFA_HOST:443 </dev/null 2>/dev/null | awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/{print}' | sudo tee /usr/local/share/ca-certificates/vcfa.crt > /dev/null
 sudo update-ca-certificates
-
 
 # --- 5. Pull Git Repo & Patch Module ---
 echo "Cloning the Terraform automation repo..."
@@ -112,15 +110,11 @@ fi
 echo "Patching storage policy in the namespace module..."
 sed -i 's/"vSAN Default Storage Policy"/"cluster-wld01-01a vSAN Storage Policy"/g' "$REPO_DIR/modules/namespace/main.tf"
 
-
 # --- 6. Interactive Prompts & Variables ---
 echo ""
 read -s -p "🔑 Enter your VCFA API Token (input will be hidden): " VCFA_TOKEN
 echo ""
 echo "Token captured."
-
-# Export token to environment so VCF CLI stops asking for it
-export VCF_API_TOKEN="$VCFA_TOKEN"
 
 cd "$REPO_DIR/argo-e2e"
 
@@ -141,20 +135,26 @@ bootstrap_revision  = "1.0.1"
 vcfa_refresh_token  = "$VCFA_TOKEN"
 EOF
 
-
-# --- 7. Terraform Execution Sequence (Double Apply Strategy) ---
+# --- 7. Terraform Execution Sequence ---
 echo "Initializing Terraform..."
 terraform init
 
-echo "Phase 1: Initial Apply (Building Namespace and Cluster)..."
-echo "Note: This may throw an error at the very end regarding ArgoCD CRDs. This is expected!"
-# We use '|| true' so the script doesn't abort if the CRD race condition happens
-terraform apply -auto-approve || {
-    echo "⚠️ Expected CRD race condition hit. Giving vCenter 60 seconds to inject services..."
-    sleep 60
-    echo "Phase 2: Final Apply (Completing ArgoCD deployment)..."
-    terraform apply -auto-approve
-}
+echo "Phase 1: Targeting Supervisor Namespace creation..."
+terraform apply -target=module.supervisor_namespace -auto-approve
+
+echo "Phase 2: Applying the rest of the infrastructure (ArgoCD, K8s cluster, etc.)..."
+terraform apply -auto-approve
+
+# --- 8. Create Contexts via VCF CLI ---
+echo "Setting up Supervisor and VCFA contexts..."
+
+# SUPERVISOR CONTEXT
+echo "Logging into Supervisor Cluster..."
+# REPLACE WITH YOUR SUPERVISOR LOGIN COMMAND
+
+# VCFA CONTEXT
+echo "Logging into VCFA..."
+# REPLACE WITH YOUR VCFA LOGIN COMMAND
 
 echo "========================================="
 echo "✅ Field Lab deployment successfully completed!"
