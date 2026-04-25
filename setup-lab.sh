@@ -831,32 +831,52 @@ echo ""
 echo "Configuring VKS cluster context for $CLUSTER_NAME..."
 
 echo "-> Switching to VCFA context..."
-vcf context use vcfa
+yes | vcf context use vcfa 2>/dev/null || echo "   (context switch may have already been active)"
 
 echo "-> Registering VCFA JWT authenticator on the cluster..."
-vcf cluster register-vcfa-jwt-authenticator "$CLUSTER_NAME"
+echo "   (This can take a minute — waiting up to 2 minutes...)"
+if ! timeout 120 bash -c "yes | vcf cluster register-vcfa-jwt-authenticator '$CLUSTER_NAME' 2>&1"; then
+    echo "⚠️ JWT authenticator registration timed out or failed."
+    echo "   You can run this manually later:"
+    echo "   vcf cluster register-vcfa-jwt-authenticator $CLUSTER_NAME"
+fi
 
 echo "-> Fetching kubeconfig for the VKS cluster..."
 mkdir -p ~/.kube
-vcf cluster kubeconfig get "$CLUSTER_NAME" --export-file ~/.kube/config
-
-echo "-> Finding cluster context name..."
-CLUSTER_CTX=$(grep "name:.*${CLUSTER_NAME}.*@" ~/.kube/config | awk '{print $2}' | head -1)
-
-if [ -z "$CLUSTER_CTX" ]; then
-    echo "⚠️ Could not auto-detect the cluster context name."
-    echo "   Here are the matching entries in your kubeconfig:"
-    echo ""
-    cat ~/.kube/config | grep "$CLUSTER_NAME"
-    echo ""
-    read -p "   Please paste the context name (the one with the @ sign): " CLUSTER_CTX
+if ! timeout 60 bash -c "yes | vcf cluster kubeconfig get '$CLUSTER_NAME' --export-file ~/.kube/config 2>&1"; then
+    echo "⚠️ Kubeconfig fetch timed out or failed."
+    echo "   You can run this manually later:"
+    echo "   vcf cluster kubeconfig get $CLUSTER_NAME --export-file ~/.kube/config"
 fi
 
-echo "-> Creating VCF context for VKS cluster (kubecontext: $CLUSTER_CTX)..."
-vcf context create e2e-niran-cls-01 \
-  --kubeconfig ~/.kube/config \
-  --kubecontext "$CLUSTER_CTX" \
-  --type cci
+if [ -f ~/.kube/config ] && grep -q "$CLUSTER_NAME" ~/.kube/config 2>/dev/null; then
+    echo "-> Finding cluster context name..."
+    CLUSTER_CTX=$(grep "name:.*${CLUSTER_NAME}.*@" ~/.kube/config | awk '{print $2}' | head -1)
+
+    if [ -z "$CLUSTER_CTX" ]; then
+        echo "⚠️ Could not auto-detect the cluster context name."
+        echo "   Here are the matching entries in your kubeconfig:"
+        echo ""
+        cat ~/.kube/config | grep "$CLUSTER_NAME"
+        echo ""
+        read -p "   Please paste the context name (the one with the @ sign): " CLUSTER_CTX
+    fi
+
+    echo "-> Creating VCF context for VKS cluster (kubecontext: $CLUSTER_CTX)..."
+    vcf context create e2e-niran-cls-01 \
+      --kubeconfig ~/.kube/config \
+      --kubecontext "$CLUSTER_CTX" \
+      --type cci 2>/dev/null || echo "   VKS cluster context may already exist. Continuing..."
+else
+    echo "⚠️ Kubeconfig does not contain $CLUSTER_NAME yet."
+    echo "   The cluster may still be provisioning. Run these manually when ready:"
+    echo ""
+    echo "   vcf context use vcfa"
+    echo "   vcf cluster register-vcfa-jwt-authenticator $CLUSTER_NAME"
+    echo "   vcf cluster kubeconfig get $CLUSTER_NAME --export-file ~/.kube/config"
+    echo "   grep $CLUSTER_NAME ~/.kube/config   # find the context with @"
+    echo "   vcf context create e2e-niran-cls-01 --kubeconfig ~/.kube/config --kubecontext <name@ns> --type cci"
+fi
 
 
 echo ""
