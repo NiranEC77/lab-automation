@@ -123,7 +123,7 @@ sed -i -E 's/"version"[[:space:]]*=[[:space:]]*"[^"]*"/"version" = "3.0.19+vmwar
 
 
 echo "Patching VKS cluster class version..."
-sed -i -E 's/"builtin-generic-v[0-9\.]+"/"builtin-generic-v3.6.2"/g' "$REPO_DIR/modules/vks-cluster/variables.tf"
+sed -i -E 's/"builtin-generic-v[0-9\.]+"/"builtin-generic-v3.5.0"/g' "$REPO_DIR/modules/vks-cluster/variables.tf"
 
 echo "Patching VKS storage class in K8s manifest format..."
 find "$REPO_DIR/modules/vks-cluster" -type f -exec sed -i 's/vsan-default-storage-policy/cluster-wld01-01a-vsan-storage-policy/g' {} +
