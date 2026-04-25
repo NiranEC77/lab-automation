@@ -55,10 +55,10 @@ if [ -f ~/.kube/config ] && grep -q "$CLUSTER_NAME" ~/.kube/config 2>/dev/null; 
     fi
 
     echo "-> Creating VCF context for VKS cluster (kubecontext: $CLUSTER_CTX)..."
-    vcf context create e2e-niran-cls-01 \
-      --kubeconfig ~/.kube/config \
-      --kubecontext "$CLUSTER_CTX" \
-      --type cci 2>/dev/null || echo "   VKS cluster context may already exist. Continuing..."
+    if ! timeout 60 bash -c "yes | vcf context create e2e-niran-cls-01 --kubeconfig ~/.kube/config --kubecontext \"$CLUSTER_CTX\" --type cci 2>&1"; then
+        echo "⚠️ Context creation timed out. You can run this manually:"
+        echo "   vcf context create e2e-niran-cls-01 --kubeconfig ~/.kube/config --kubecontext $CLUSTER_CTX --type cci"
+    fi
 else
     echo "⚠️ Kubeconfig does not contain $CLUSTER_NAME yet."
     echo "   The cluster may still be provisioning. Run these manually when ready:"
