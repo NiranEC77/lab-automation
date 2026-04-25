@@ -121,8 +121,20 @@ sed -i 's/"vSAN Default Storage Policy"/"cluster-wld01-01a vSAN Storage Policy"/
 echo "Patching ArgoCD version in the argocd module..."
 sed -i -E 's/"version"[[:space:]]*=[[:space:]]*"[^"]*"/"version" = "3.0.19+vmware.1-vks.1"/g' "$REPO_DIR/modules/argocd-instance/main.tf"
 
-echo "Patching VKS cluster class version..."
+echo "Patching VKS cluster class version (module defaults)..."
 sed -i -E 's/"builtin-generic-v[0-9\.]+"/"builtin-generic-v3.6.2"/g' "$REPO_DIR/modules/vks-cluster/variables.tf"
+
+echo "Patching VKS cluster class version (argo-e2e variables - the ones actually used)..."
+sed -i -E 's/"builtin-generic-v[0-9\.]+"/"builtin-generic-v3.6.2"/g' "$REPO_DIR/argo-e2e/variables.tf"
+
+echo "Patching VKS k8s_version (argo-e2e variables)..."
+sed -i -E 's/default = "v1\.[0-9]+\.[0-9]+\+vmware\.[0-9]+(-fips)?"/default = "v1.34.1+vmware.1"/g' "$REPO_DIR/argo-e2e/variables.tf"
+
+echo "Patching VKS kubernetes_manifest to add computed_fields for server-side mutations..."
+if ! grep -q 'computed_fields' "$REPO_DIR/modules/vks-cluster/main.tf"; then
+  sed -i '/^resource "kubernetes_manifest" "kubernetes_cluster" {/a\
+  computed_fields = ["spec.topology.class", "spec.topology.version"]' "$REPO_DIR/modules/vks-cluster/main.tf"
+fi
 
 echo "Patching VKS storage class in K8s manifest format..."
 find "$REPO_DIR/modules/vks-cluster" -type f -exec sed -i 's/vsan-default-storage-policy/cluster-wld01-01a-vsan-storage-policy/g' {} +
