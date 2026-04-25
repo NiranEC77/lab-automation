@@ -122,11 +122,8 @@ echo "Patching ArgoCD version in the argocd module..."
 sed -i -E 's/"version"[[:space:]]*=[[:space:]]*"[^"]*"/"version" = "3.0.19+vmware.1-vks.1"/g' "$REPO_DIR/modules/argocd-instance/main.tf"
 
 
-echo "Patching VKS kubernetes_manifest to add computed_fields for server-side mutations..."
-if ! grep -q 'computed_fields' "$REPO_DIR/modules/vks-cluster/main.tf"; then
-  sed -i '/^resource "kubernetes_manifest" "kubernetes_cluster" {/a\
-  computed_fields = ["spec.topology.class", "spec.topology.version"]' "$REPO_DIR/modules/vks-cluster/main.tf"
-fi
+echo "Patching VKS cluster class version..."
+sed -i -E 's/"builtin-generic-v[0-9\.]+"/"builtin-generic-v3.6.2"/g' "$REPO_DIR/modules/vks-cluster/variables.tf"
 
 echo "Patching VKS storage class in K8s manifest format..."
 find "$REPO_DIR/modules/vks-cluster" -type f -exec sed -i 's/vsan-default-storage-policy/cluster-wld01-01a-vsan-storage-policy/g' {} +
@@ -428,6 +425,7 @@ namespace           = "e2e-ns"
 cluster             = "e2e-niran-cls01"
 bootstrap_revision  = "1.0.1"
 cluster_class       = "builtin-generic-v3.6.2"
+k8s_version         = "v1.34.1+vmware.1"
 vcfa_refresh_token  = "$VCFA_TOKEN"
 EOF
 
@@ -446,18 +444,13 @@ vcf plugin sync 2>/dev/null || true
 vcf telemetry update --opted-out 2>/dev/null || true
 
 echo "Creating VCF Supervisor Context..."
-# The VCF CLI (Go binary) reads passwords from /dev/tty directly,
-# which makes expect unable to intercept the prompt.
-# Instead we create the kubectl context manually.
-SUPERVISOR_ENDPOINT="10.1.0.2"
-kubectl config set-cluster supervisor-ctx --server="https://${SUPERVISOR_ENDPOINT}:6443" --insecure-skip-tls-verify=true
-kubectl config set-credentials supervisor-ctx --username=administrator@wld.sso --password="$LAB_PASS"
-kubectl config set-context supervisor-ctx --cluster=supervisor-ctx --user=supervisor-ctx
-kubectl config use-context supervisor-ctx
-echo "✅ Supervisor kubectl context created."
-
-# Also create the VCF CLI context non-interactively if possible
-vcf context create supervisor-ctx --endpoint "$SUPERVISOR_ENDPOINT" --username administrator@wld.sso --insecure-skip-tls-verify -t kubernetes --auth-type basic 2>/dev/null <<< "$LAB_PASS" || echo "ℹ️  VCF CLI context may need manual password entry later. kubectl context is ready."
+vcf context create supervisor-ctx \
+  --endpoint 10.1.0.2 \
+  --username administrator@wld.sso \
+  --password "$LAB_PASS" \
+  --insecure-skip-tls-verify \
+  -t kubernetes \
+  --auth-type basic 2>/dev/null || echo "Context may already exist. Continuing..."
 
 
 # Temporarily disable exit-on-error. These API fixes are "best effort" 
