@@ -121,7 +121,6 @@ sed -i 's/"vSAN Default Storage Policy"/"cluster-wld01-01a vSAN Storage Policy"/
 echo "Patching ArgoCD version in the argocd module..."
 sed -i -E 's/"version"[[:space:]]*=[[:space:]]*"[^"]*"/"version" = "3.0.19+vmware.1-vks.1"/g' "$REPO_DIR/modules/argocd-instance/main.tf"
 
-# BUG FIX: Use regex to catch ANY version the repo author might have updated to
 echo "Patching VKS cluster class version..."
 sed -i -E 's/"builtin-generic-v[0-9\.]+"/"builtin-generic-v3.6.2"/g' "$REPO_DIR/modules/vks-cluster/variables.tf"
 
@@ -405,7 +404,8 @@ echo "====================================================================="
 echo ""
 read -s -p "🔑 Paste your VCFA API Token here and hit Enter (input hidden): " VCFA_TOKEN
 echo ""
-echo "Token captured! Resuming automation..."
+echo "Token captured! Saving to Desktop and resuming automation..."
+echo "$VCFA_TOKEN" > "$DESKTOP_DIR/vcfa_api_token.txt"
 
 cd "$REPO_DIR/argo-e2e"
 
@@ -521,34 +521,18 @@ set -e
 # --- 10. Post-Deployment Context Configuration ---
 echo "Configuring final VCF CLI contexts..."
 
-# 1. Create the VCFA Context
+# Fetching VCFA certificate chain
+echo "-> Fetching VCFA certificate chain..."
+VCFA_CERT_PATH="$LAB_DIR/vcfa_chain.pem"
+openssl s_client -showcerts -connect auto-a.site-a.vcf.lab:443 </dev/null 2>/dev/null | awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/{print}' > "$VCFA_CERT_PATH"
+
+# Create the VCFA Context ONLY
 echo "-> Creating VCFA context..."
 vcf context create vcfa \
   --endpoint auto-a.site-a.vcf.lab \
   --api-token "$VCFA_TOKEN" \
   --tenant-name all-apps \
-  --insecure-skip-tls-verify
-
-# 2. Switch to the newly created project context
-echo "-> Switching to VCFA project context..."
-vcf context use "vcfa:${NS_NAME}:default-project"
-
-# 3. Register JWT authenticator for the cluster
-echo "-> Registering JWT authenticator..."
-vcf cluster register-vcfa-jwt-authenticator e2e-niran-cls01
-
-# 4. Grab the kubeconfig
-echo "-> Exporting cluster kubeconfig..."
-mkdir -p ~/.kube
-vcf cluster kubeconfig get e2e-niran-cls01 --export-file ~/.kube/config
-
-# 5. Create the workload cluster context natively (bypassing interactive prompts)
-echo "-> Creating context for the new cluster..."
-vcf context create e2e-niran-cls01 \
-  --kubeconfig ~/.kube/config \
-  --kubecontext "vcf-cli-e2e-niran-cls01-${NS_NAME}@e2e-niran-cls01-${NS_NAME}" \
-  --type cloud-consumption-interface \
-  --api-token "$VCFA_TOKEN"
+  --ca-certificate "$VCFA_CERT_PATH"
 
 echo "========================================="
 echo "✅ Field Lab deployment successfully completed!"
