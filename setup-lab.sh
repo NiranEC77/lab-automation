@@ -15,123 +15,14 @@ mkdir -p "$LAB_DIR"
 mkdir -p "$BIN_DIR"
 mkdir -p "$DESKTOP_DIR"
 
-export PATH="$BIN_DIR:$PATH"
 
-# --- 2. Install CLIs & Prerequisites ---
-echo "Checking prerequisites..."
-echo "$LAB_PASS" | sudo -S apt-get update -y
-echo "$LAB_PASS" | sudo -S apt-get --fix-broken install -y
-
-TOOLS="curl unzip git jq gpg zsh expect"
-for tool in $TOOLS; do
-    if ! command -v $tool &> /dev/null; then
-        echo "Installing $tool..."
-        if [ "$tool" = "curl" ]; then
-            echo "$LAB_PASS" | sudo -S apt-get install -y curl libcurl4t64 || echo "$LAB_PASS" | sudo -S apt-get install -y curl
-        else
-            echo "$LAB_PASS" | sudo -S apt-get install -y $tool
-        fi
-    else
-        echo "$tool is already installed. Skipping."
-    fi
-done
-
-for pkg in apt-transport-https ca-certificates; do
-    if ! dpkg -s $pkg >/dev/null 2>&1; then
-        echo "Installing $pkg..."
-        echo "$LAB_PASS" | sudo -S apt-get install -y $pkg
-    fi
-done
-
-if ! command -v kubectl &> /dev/null; then
-    echo "Installing kubectl..."
-    curl -fsSLO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-    chmod +x kubectl
-    mv kubectl "$BIN_DIR/"
-fi
-
-if ! command -v terraform &> /dev/null; then
-    echo "Installing Terraform..."
-    echo "$LAB_PASS" | sudo -S true 
-    
-    wget -O- https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
-    echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
-    
-    echo "$LAB_PASS" | sudo -S apt-get update -y
-    echo "$LAB_PASS" | sudo -S apt-get install -y terraform
-fi
-
-
-# --- 3. Setup Zsh & Oh My Zsh ---
-echo "Setting up Zsh and Oh My Zsh..."
-if [ "$SHELL" != "$(which zsh)" ]; then
-    echo "Changing default shell to zsh..."
-    echo "$LAB_PASS" | sudo -S chsh -s $(which zsh) $(whoami)
-fi
-
-if [ ! -d "$HOME/.oh-my-zsh" ]; then
-    echo "Installing Oh My Zsh..."
-    RUNZSH=no CHSH=no sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
-fi
-
-ZSH_CUSTOM="$HOME/.oh-my-zsh/custom"
-if [ ! -d "$ZSH_CUSTOM/plugins/zsh-autosuggestions" ]; then
-    git clone https://github.com/zsh-users/zsh-autosuggestions "$ZSH_CUSTOM/plugins/zsh-autosuggestions"
-fi
-if [ ! -d "$ZSH_CUSTOM/plugins/zsh-syntax-highlighting" ]; then
-    git clone https://github.com/zsh-users/zsh-syntax-highlighting "$ZSH_CUSTOM/plugins/zsh-syntax-highlighting"
-fi
-
-sed -i 's/^ZSH_THEME=.*/ZSH_THEME="fino-time"/' "$HOME/.zshrc"
-sed -i 's/^plugins=(git)/plugins=(git zsh-autosuggestions zsh-syntax-highlighting kubectl)/' "$HOME/.zshrc"
-
-if ! grep -q "exec zsh" "$HOME/.bashrc"; then
-    echo -e "\n# Launch Zsh automatically" >> "$HOME/.bashrc"
-    echo 'if [ -t 1 ] && [ -z "$ZSH_VERSION" ]; then' >> "$HOME/.bashrc"
-    echo '    exec zsh' >> "$HOME/.bashrc"
-    echo 'fi' >> "$HOME/.bashrc"
-fi
-
-
-# --- 4. Setup Aliases ---
-echo "Setting up aliases..."
-cat << 'EOF' > "$HOME/.lab_aliases"
-alias k='kubectl'
-alias tf='terraform'
-EOF
-
-if ! grep -q ".lab_aliases" "$HOME/.zshrc"; then
-    echo "source $HOME/.lab_aliases" >> "$HOME/.zshrc"
-fi
-
-
-# --- 5. Pull Git Repo & Patch Modules ---
-echo "Managing the Terraform automation repo..."
-if [ -d "$REPO_DIR" ]; then
-    echo "Repo already exists. Pulling latest updates without overwriting custom files..."
-    cd "$REPO_DIR"
-    git pull
-else
-    git clone https://github.com/warroyo/vcfa-terraform-examples "$REPO_DIR"
-fi
-
-echo "Patching storage policy in the namespace module..."
-sed -i 's/"vSAN Default Storage Policy"/"cluster-wld01-01a vSAN Storage Policy"/g' "$REPO_DIR/modules/namespace/main.tf"
-
-echo "Patching ArgoCD version in the argocd module..."
-sed -i -E 's/"version"[[:space:]]*=[[:space:]]*"[^"]*"/"version" = "3.0.19+vmware.1-vks.1"/g' "$REPO_DIR/modules/argocd-instance/main.tf"
-
-
-echo "Patching VKS cluster class version..."
-sed -i -E 's/"builtin-generic-v[0-9\.]+"/"builtin-generic-v3.5.0"/g' "$REPO_DIR/modules/vks-cluster/variables.tf"
-
-echo "Patching VKS storage class in K8s manifest format..."
-find "$REPO_DIR/modules/vks-cluster" -type f -exec sed -i 's/vsan-default-storage-policy/cluster-wld01-01a-vsan-storage-policy/g' {} +
-
-
-# --- 6. Drop YAML Manifests (Desktop) ---
+# --- 2. Drop YAML Manifests on Desktop (for manual upgrades) ---
+# Dropped first so you can start upgrades in vCenter while the script continues.
 ARGOCD_YAML_FILE="$DESKTOP_DIR/argocd-service-1.1.0.yaml"
-VKS_YAML_FILE="$DESKTOP_DIR/vks-upgrade-3.6.2.yaml"
+VKS_YAML_FILE="$DESKTOP_DIR/vks-upgrade-3.5.1.yaml"
+ARGOCD_ATTACH_YAML_FILE="$DESKTOP_DIR/argocd-attach-1.0.7.yaml"
+
+echo "Dropping YAML manifests to Desktop so you can start upgrades immediately..."
 
 echo "Generating ArgoCD Service YAML at $ARGOCD_YAML_FILE..."
 cat << 'EOF' > "$ARGOCD_YAML_FILE"
@@ -205,9 +96,9 @@ cat << 'EOF' > "$VKS_YAML_FILE"
 apiVersion: data.packaging.carvel.dev/v1alpha1
 kind: Package
 metadata:
-  name: tkg.vsphere.vmware.com.3.6.2+v1.35
+  name: tkg.vsphere.vmware.com.3.5.1+v1.34
   annotations:
-    appplatform.vmware.com/source-version-upgrade-constraints: '>=3.3.0'
+    appplatform.vmware.com/source-version-upgrade-constraints: '>=3.2.0'
     appplatform.vmware.com/compatibility-check_service: upgrade-compatibility-service
     appplatform.vmware.com/compatibility-check_port: "80"
     appplatform.vmware.com/compatibility-check_protocol: https
@@ -219,27 +110,47 @@ metadata:
       [
         {
           "version": "v1",
+          "requires": {
+            "tanzu-kubernetes-release": [
+              {
+                "#data_object_or_protocol": "data object",
+                "predicate": {
+                  "operation": "not",
+                  "arguments": [
+                    {
+                      "operation": "isVersionSatisfied",
+                      "arguments": {
+                        "initiator": "vmware.com/gccontroller",
+                        "receiver": "ovf",
+                        "versions": [
+                          "v1.31.1+vmware.2-fips-vkr.2",
+                          "v1.30.8+vmware.1-fips-vkr.1"
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
           "offers": {
             "VKS": {
               "versions": {
                 "vmware.com/gcccontroller": [
-                  "3.6.2"
+                  "3.5.1"
                 ]
               }
             },
             "TKGSvS": {
               "versions": {
                 "vmware.com/gccontroller": [
+                  "3.2.0",
                   "3.3.0",
-                  "3.3.3",
                   "3.4.0",
-                  "3.4.1",
-                  "3.4.2",
+                  "3.2.31",
+                  "3.3.3",
                   "3.5.0",
-                  "3.5.1",
-                  "3.6.0",
-                  "3.6.1",
-                  "3.6.2"
+                  "3.5.1"
                 ]
               }
             }
@@ -250,14 +161,14 @@ metadata:
     appplatform.vmware.com/requires-ha-supervisor: "true"
 spec:
   refName: tkg.vsphere.vmware.com
-  version: 3.6.2+v1.35
+  version: 3.5.1+v1.34
   kubernetesVersionSelection:
-    constraints: '>1.30.0'
+    constraints: '>=1.30.0'
   template:
     spec:
       fetch:
       - imgpkgBundle:
-          image: projects.packages.broadcom.com/vsphere/iaas/vsphere-kubernetes-service/3.6.2/vsphere-kubernetes-service:3.6.2
+          image: projects.packages.broadcom.com/vsphere/iaas/tkg-service/3.5.1/tkg-service:3.5.1
       template:
       - ytt:
           paths:
@@ -325,10 +236,6 @@ spec:
               type: integer
               default: 0
               description: The value indicates the number of CPUs available on the control plane VMs.
-        misconfiguredSoftwareChecksDryrunIntervalDuration:
-          type: string
-          description: Duration after which the dry-run controller should be run again. Examples are '24h', '1d23h45m12s' etc. Defaults to 24h.
-          default: 24h
         capabilities:
           deprecated: true
           type: array
@@ -381,6 +288,314 @@ spec:
   - cluster management
 EOF
 
+echo "Generating ArgoCD Attach YAML at $ARGOCD_ATTACH_YAML_FILE..."
+cat << 'EOF' > "$ARGOCD_ATTACH_YAML_FILE"
+apiVersion: data.packaging.carvel.dev/v1alpha1
+kind: PackageMetadata
+metadata:
+  creationTimestamp: null
+  name: argocd-attach.fling.vsphere.vmware.com
+spec:
+  displayName: argocd-attach
+  longDescription: argocd-attach.fling.vsphere.vmware.com
+  shortDescription: argocd-attach.fling.vsphere.vmware.com
+
+---
+apiVersion: data.packaging.carvel.dev/v1alpha1
+kind: Package
+metadata:
+  creationTimestamp: null
+  name: argocd-attach.fling.vsphere.vmware.com.1.0.7
+spec:
+  refName: argocd-attach.fling.vsphere.vmware.com
+  releasedAt: "2025-06-12T17:07:57Z"
+  template:
+    spec:
+      deploy:
+      - kapp: {}
+      fetch:
+      - imgpkgBundle:
+          image: ghcr.io/warroyo/argocd-auto-attach@sha256:5c917e3dd6c57973f0a19e1662c7c7dc1ab85e3cc02eb0ba756a638bbc2cd34b
+      template:
+      - helmTemplate:
+          name: metacontroller
+          path: upstream
+      - ytt:
+          ignoreUnknownComments: true
+          paths:
+          - '-'
+      - kbld:
+          paths:
+          - '-'
+          - .imgpkg/images.yml
+  valuesSchema:
+    openAPIv3:
+      properties:
+        affinity:
+          default: {}
+          type: object
+        argo_namespace:
+          default: ""
+          type: string
+        clusterRole:
+          properties:
+            aggregationRule:
+              default: {}
+              type: object
+            rules:
+              default: []
+              items:
+                properties:
+                  apiGroups:
+                    default: []
+                    items:
+                      default: '*'
+                      type: string
+                    type: array
+                  resources:
+                    default: []
+                    items:
+                      default: '*'
+                      type: string
+                    type: array
+                  verbs:
+                    default: []
+                    items:
+                      default: '*'
+                      type: string
+                    type: array
+                type: object
+              type: array
+          type: object
+        command:
+          default: /usr/bin/metacontroller
+          description: Command which is used to start metacontroller
+          type: string
+        commandArgs:
+          default: []
+          description: Command arguments which are used to start metacontroller
+          items:
+            default: --zap-log-level=4
+            type: string
+          type: array
+        fullnameOverride:
+          default: ""
+          type: string
+        image:
+          properties:
+            pullPolicy:
+              default: IfNotPresent
+              type: string
+            repository:
+              default: ghcr.io/metacontroller/metacontroller
+              type: string
+            tag:
+              default: ""
+              type: string
+          type: object
+        imagePullSecrets:
+          default: []
+          items: {}
+          type: array
+        nameOverride:
+          default: ""
+          type: string
+        namespace:
+          default: ""
+          type: string
+        namespaceOverride:
+          default: metacontroller
+          type: string
+        nodeSelector:
+          default: {}
+          type: object
+        podAnnotations:
+          default: {}
+          type: object
+        podDisruptionBudget:
+          default: {}
+          description: which can be enabled when running more than one replica
+          type: object
+        podSecurityContext:
+          default: {}
+          type: object
+        priorityClassName:
+          default: ""
+          description: The name of the PriorityClass that will be assigned to metacontroller
+          type: string
+        probes:
+          properties:
+            port:
+              default: 8081
+              type: integer
+          type: object
+        python_image:
+          default: harbor.vcf.lab/niran/python:3.3
+          type: string
+        rbac:
+          properties:
+            create:
+              default: true
+              type: boolean
+          type: object
+        replicas:
+          default: 1
+          type: integer
+        resources:
+          default: {}
+          type: object
+        securityContext:
+          default: {}
+          type: object
+        service:
+          properties:
+            enabled:
+              default: false
+              type: boolean
+            ports:
+              default: []
+              items: {}
+              type: array
+          type: object
+        serviceAccount:
+          properties:
+            annotations:
+              default: {}
+              type: object
+            create:
+              default: true
+              type: boolean
+            name:
+              default: ""
+              description: The name of the service account to use. If not set and
+                create is true, a name is generated using the fullname template
+              type: string
+          type: object
+        tolerations:
+          default: []
+          items: {}
+          type: array
+      type: object
+  version: 1.0.7
+EOF
+
+echo "✅ YAML manifests saved to Desktop. You can apply these in vCenter while the script continues."
+echo ""
+
+
+export PATH="$BIN_DIR:$PATH"
+
+# --- 3. Install CLIs & Prerequisites ---
+echo "Checking prerequisites..."
+echo "$LAB_PASS" | sudo -S apt-get update -y
+echo "$LAB_PASS" | sudo -S apt-get --fix-broken install -y
+
+TOOLS="curl unzip git jq gpg zsh expect"
+for tool in $TOOLS; do
+    if ! command -v $tool &> /dev/null; then
+        echo "Installing $tool..."
+        if [ "$tool" = "curl" ]; then
+            echo "$LAB_PASS" | sudo -S apt-get install -y curl libcurl4t64 || echo "$LAB_PASS" | sudo -S apt-get install -y curl
+        else
+            echo "$LAB_PASS" | sudo -S apt-get install -y $tool
+        fi
+    else
+        echo "$tool is already installed. Skipping."
+    fi
+done
+
+for pkg in apt-transport-https ca-certificates; do
+    if ! dpkg -s $pkg >/dev/null 2>&1; then
+        echo "Installing $pkg..."
+        echo "$LAB_PASS" | sudo -S apt-get install -y $pkg
+    fi
+done
+
+if ! command -v kubectl &> /dev/null; then
+    echo "Installing kubectl..."
+    curl -fsSLO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+    chmod +x kubectl
+    mv kubectl "$BIN_DIR/"
+fi
+
+if ! command -v terraform &> /dev/null; then
+    echo "Installing Terraform..."
+    echo "$LAB_PASS" | sudo -S true 
+    
+    wget -O- https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+    echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+    
+    echo "$LAB_PASS" | sudo -S apt-get update -y
+    echo "$LAB_PASS" | sudo -S apt-get install -y terraform
+fi
+
+
+# --- 4. Setup Zsh & Oh My Zsh ---
+echo "Setting up Zsh and Oh My Zsh..."
+if [ "$SHELL" != "$(which zsh)" ]; then
+    echo "Changing default shell to zsh..."
+    echo "$LAB_PASS" | sudo -S chsh -s $(which zsh) $(whoami)
+fi
+
+if [ ! -d "$HOME/.oh-my-zsh" ]; then
+    echo "Installing Oh My Zsh..."
+    RUNZSH=no CHSH=no sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+fi
+
+ZSH_CUSTOM="$HOME/.oh-my-zsh/custom"
+if [ ! -d "$ZSH_CUSTOM/plugins/zsh-autosuggestions" ]; then
+    git clone https://github.com/zsh-users/zsh-autosuggestions "$ZSH_CUSTOM/plugins/zsh-autosuggestions"
+fi
+if [ ! -d "$ZSH_CUSTOM/plugins/zsh-syntax-highlighting" ]; then
+    git clone https://github.com/zsh-users/zsh-syntax-highlighting "$ZSH_CUSTOM/plugins/zsh-syntax-highlighting"
+fi
+
+sed -i 's/^ZSH_THEME=.*/ZSH_THEME="fino-time"/' "$HOME/.zshrc"
+sed -i 's/^plugins=(git)/plugins=(git zsh-autosuggestions zsh-syntax-highlighting kubectl)/' "$HOME/.zshrc"
+
+if ! grep -q "exec zsh" "$HOME/.bashrc"; then
+    echo -e "\n# Launch Zsh automatically" >> "$HOME/.bashrc"
+    echo 'if [ -t 1 ] && [ -z "$ZSH_VERSION" ]; then' >> "$HOME/.bashrc"
+    echo '    exec zsh' >> "$HOME/.bashrc"
+    echo 'fi' >> "$HOME/.bashrc"
+fi
+
+
+# --- 5. Setup Aliases ---
+echo "Setting up aliases..."
+cat << 'EOF' > "$HOME/.lab_aliases"
+alias k='kubectl'
+alias tf='terraform'
+EOF
+
+if ! grep -q ".lab_aliases" "$HOME/.zshrc"; then
+    echo "source $HOME/.lab_aliases" >> "$HOME/.zshrc"
+fi
+
+
+# --- 6. Pull Git Repo & Patch Modules ---
+echo "Managing the Terraform automation repo..."
+if [ -d "$REPO_DIR" ]; then
+    echo "Repo already exists. Pulling latest updates without overwriting custom files..."
+    cd "$REPO_DIR"
+    git pull
+else
+    git clone https://github.com/warroyo/vcfa-terraform-examples "$REPO_DIR"
+fi
+
+echo "Patching storage policy in the namespace module..."
+sed -i 's/"vSAN Default Storage Policy"/"cluster-wld01-01a vSAN Storage Policy"/g' "$REPO_DIR/modules/namespace/main.tf"
+
+echo "Patching ArgoCD version in the argocd module..."
+sed -i -E 's/"version"[[:space:]]*=[[:space:]]*"[^"]*"/"version" = "3.0.19+vmware.1-vks.1"/g' "$REPO_DIR/modules/argocd-instance/main.tf"
+
+
+echo "Patching VKS cluster class version..."
+sed -i -E 's/"builtin-generic-v[0-9\.]+"/"builtin-generic-v3.5.0"/g' "$REPO_DIR/modules/vks-cluster/variables.tf"
+
+echo "Patching VKS storage class in K8s manifest format..."
+find "$REPO_DIR/modules/vks-cluster" -type f -exec sed -i 's/vsan-default-storage-policy/cluster-wld01-01a-vsan-storage-policy/g' {} +
+
 
 # --- 7. Save Credentials to Desktop ---
 echo "Saving credentials to Desktop..."
@@ -397,9 +612,11 @@ echo "⚠️  MANUAL ACTION REQUIRED: DEPLOY ARGOCD, UPGRADE VKS, & GET TOKEN"
 echo "1. Log into vCenter and navigate to Workload Management -> Services."
 echo "2. Deploy the ArgoCD Service."
 echo "   (If needed, use $ARGOCD_YAML_FILE)"
-echo "3. Upgrade the vSphere Kubernetes Service (VKS)."
+echo "3. Deploy the ArgoCD Attach Fling."
+echo "   (If needed, use $ARGOCD_ATTACH_YAML_FILE)"
+echo "4. Upgrade the vSphere Kubernetes Service (VKS)."
 echo "   (If needed, use $VKS_YAML_FILE)"
-echo "4. WHILE they install, go to VCFA (https://auto-a.site-a.vcf.lab) and get your API token."
+echo "5. WHILE they install, go to VCFA (https://auto-a.site-a.vcf.lab) and get your API token."
 echo "   (Credentials are saved on your Desktop in password.txt)"
 echo "====================================================================="
 echo ""
