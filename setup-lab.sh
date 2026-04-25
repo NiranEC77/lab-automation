@@ -446,11 +446,20 @@ terraform init
 echo "Phase 1: Targeting Supervisor Namespace creation..."
 terraform apply -target=module.supervisor_namespace -auto-approve
 
-echo "Creating VCF Supervisor Context (waiting for plugins if needed)..."
+echo "Pre-configuring VCF CLI (EULA, CEIP, and plugins)..."
+export TANZU_CLI_EULA_PROMPT_ANSWER=Yes
+export TANZU_CLI_CEIP_OPT_IN_PROMPT_ANSWER=Yes
+
+# Force plugin installation and CEIP opt-out BEFORE the expect script
+# so the context create command doesn't trigger interactive prompts
+vcf plugin sync 2>/dev/null || true
+vcf telemetry update --opted-out 2>/dev/null || true
+
+echo "Creating VCF Supervisor Context..."
 cat << EOF > vcf-login.exp
 #!/usr/bin/expect -f
 set timeout -1
-spawn vcf context create supervisor-ctx --endpoint 10.1.0.2 --username administrator@wld.sso --insecure-skip-tls-verify -t kubernetes --auth-type basic
+spawn env TANZU_CLI_EULA_PROMPT_ANSWER=Yes TANZU_CLI_CEIP_OPT_IN_PROMPT_ANSWER=Yes vcf context create supervisor-ctx --endpoint 10.1.0.2 --username administrator@wld.sso --insecure-skip-tls-verify -t kubernetes --auth-type basic
 expect {
     -nocase "*already exists*" {
         send_user "\nContext already exists, skipping creation...\n"
