@@ -424,7 +424,6 @@ vcfa_url            = "https://auto-a.site-a.vcf.lab"
 namespace           = "e2e-ns"
 cluster             = "e2e-niran-cls01"
 bootstrap_revision  = "1.0.1"
-cluster_class       = "builtin-generic-v3.6.2"
 k8s_version         = "v1.34.1+vmware.1"
 vcfa_refresh_token  = "$VCFA_TOKEN"
 EOF
