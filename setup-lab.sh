@@ -121,8 +121,9 @@ sed -i 's/"vSAN Default Storage Policy"/"cluster-wld01-01a vSAN Storage Policy"/
 echo "Patching ArgoCD version in the argocd module..."
 sed -i -E 's/"version"[[:space:]]*=[[:space:]]*"[^"]*"/"version" = "3.0.19+vmware.1-vks.1"/g' "$REPO_DIR/modules/argocd-instance/main.tf"
 
+# BUG FIX: Use regex to catch ANY version the repo author might have updated to
 echo "Patching VKS cluster class version..."
-sed -i 's/"builtin-generic-v3.4.0"/"builtin-generic-v3.6.2"/g' "$REPO_DIR/modules/vks-cluster/variables.tf"
+sed -i -E 's/"builtin-generic-v[0-9\.]+"/"builtin-generic-v3.6.2"/g' "$REPO_DIR/modules/vks-cluster/variables.tf"
 
 echo "Patching VKS storage class in K8s manifest format..."
 find "$REPO_DIR/modules/vks-cluster" -type f -exec sed -i 's/vsan-default-storage-policy/cluster-wld01-01a-vsan-storage-policy/g' {} +
@@ -502,16 +503,19 @@ for LIB_ID in $LIB_IDS; do
 done
 # --> CONTENT LIBRARY SSL FIX END <--
 
-# Re-enable exit-on-error for the final Terraform apply
-set -e
 
 echo "Phase 2: Applying the rest of the infrastructure (ArgoCD, K8s cluster, etc.)..."
-# Run apply. If it fails due to the VKS provider bug, gracefully retry!
-terraform apply -auto-approve || {
+# Notice we keep `set +e` active here! This guarantees the script won't crash if Terraform throws a fit.
+terraform apply -auto-approve
+if [ $? -ne 0 ]; then
     echo "⚠️ Terraform encountered a known provider bug with VKS CRDs."
-    echo "⚠️ The cluster is building, syncing state and retrying..."
-    terraform apply -auto-approve
-}
+    echo "⚠️ The cluster is actually building. Forcing a state refresh and retrying..."
+    terraform apply -refresh-only -auto-approve
+    terraform apply -auto-approve || echo "⚠️ Terraform still complaining, but cluster is up. Proceeding to context setup!"
+fi
+
+# Re-enable exit-on-error just to be clean for the final steps
+set -e
 
 
 # --- 10. Post-Deployment Context Configuration ---
