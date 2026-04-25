@@ -2,6 +2,39 @@
 # Stop execution if any command fails
 set -e
 
+
+# --- Mode Selection (ask first, automate everything after) ---
+echo ""
+echo "╔═══════════════════════════════════════════╗"
+echo "║       🚀 Field Lab Setup Script           ║"
+echo "╚═══════════════════════════════════════════╝"
+echo ""
+echo "What would you like to do?"
+echo ""
+echo "  1) prep   → Install tools, drop YAMLs, patch configs, capture token,"
+echo "              and initialize Terraform. Stops before Terraform apply."
+echo ""
+echo "  2) deploy → Full end-to-end: runs prep (skips steps already done)"
+echo "              + Terraform apply + all context configuration."
+echo ""
+read -p "Enter your choice [prep/deploy]: " MODE
+echo ""
+
+# Normalize input
+case "$MODE" in
+    1|prep|p)   MODE="prep" ;;
+    2|deploy|d) MODE="deploy" ;;
+    *) echo "❌ Invalid choice. Please run again and choose 'prep' or 'deploy'."; exit 1 ;;
+esac
+
+echo "Running in ${MODE^^} mode..."
+echo ""
+
+
+###############################################################################
+#                         PREP (runs for both modes)                          #
+###############################################################################
+
 # --- 1. Variables & Folder Structure ---
 LAB_PASS="VMware123!VMware123!"
 
@@ -23,40 +56,6 @@ VKS_YAML_FILE="$DESKTOP_DIR/vks-upgrade-3.5.1.yaml"
 ARGOCD_ATTACH_YAML_FILE="$DESKTOP_DIR/argocd-attach-1.0.7.yaml"
 TOKEN_FILE="$DESKTOP_DIR/vcfa_api_token.txt"
 TFVARS_FILE="$REPO_DIR/argo-e2e/terraform.tfvars"
-
-
-# --- Mode Selection ---
-echo ""
-echo "╔═══════════════════════════════════════════╗"
-echo "║       🚀 Field Lab Setup Script           ║"
-echo "╚═══════════════════════════════════════════╝"
-echo ""
-echo "What would you like to do?"
-echo ""
-echo "  1) prep   → Install tools, drop YAMLs, patch configs, capture token,"
-echo "              and initialize Terraform. (Everything BEFORE deploy)"
-echo ""
-echo "  2) deploy → Run Terraform apply, fix known bugs, and configure"
-echo "              all VCF CLI contexts. (Requires prep to be done first)"
-echo ""
-read -p "Enter your choice [prep/deploy]: " MODE
-echo ""
-
-# Normalize input
-case "$MODE" in
-    1|prep|p)   MODE="prep" ;;
-    2|deploy|d) MODE="deploy" ;;
-    *) echo "❌ Invalid choice. Please run again and choose 'prep' or 'deploy'."; exit 1 ;;
-esac
-
-
-###############################################################################
-#                              PREP MODE                                      #
-###############################################################################
-if [ "$MODE" = "prep" ]; then
-
-echo "Starting PREP mode..."
-echo ""
 
 
 # --- 2. Drop YAML Manifests on Desktop ---
@@ -642,43 +641,48 @@ EOF
 
 
 # --- 8. Manual Intervention & Token Capture ---
-echo ""
-echo "╔═══════════════════════════════════════════════════════════════════════╗"
-echo "║              ⚠️  MANUAL ACTIONS REQUIRED BEFORE CONTINUING           ║"
-echo "╚═══════════════════════════════════════════════════════════════════════╝"
-echo ""
-echo "  All YAML manifests have been saved to your Desktop."
-echo "  Open vCenter → Workload Management → Supervisor Services"
-echo "  and perform the following actions:"
-echo ""
-echo "  ┌─────────────────────────────────────────────────────────────────┐"
-echo "  │  1. 📦 UPGRADE the VKS (Kubernetes) Service to v3.5           │"
-echo "  │     Use: $VKS_YAML_FILE"
-echo "  │                                                                 │"
-echo "  │  2. 📦 DEPLOY the ArgoCD Service                               │"
-echo "  │     Use: $ARGOCD_YAML_FILE"
-echo "  │                                                                 │"
-echo "  │  3. 📦 DEPLOY the ArgoCD Attach Fling                          │"
-echo "  │     Use: $ARGOCD_ATTACH_YAML_FILE"
-echo "  │                                                                 │"
-echo "  │  4. 🔑 GET your VCFA API Token                                 │"
-echo "  │     Go to: https://auto-a.site-a.vcf.lab                       │"
-echo "  │     Login with credentials from ~/Desktop/password.txt          │"
-echo "  │     Navigate to your user settings and generate a refresh token │"
-echo "  └─────────────────────────────────────────────────────────────────┘"
-echo ""
-echo "  Complete ALL steps above, then paste your token below to continue."
-echo ""
-read -s -p "  🔑 Paste your VCFA API Token here and hit Enter (input hidden): " VCFA_TOKEN
-echo ""
-echo ""
-echo "  Token captured! Saving to Desktop..."
-echo "$VCFA_TOKEN" > "$TOKEN_FILE"
+# Skip if token and tfvars already exist from a previous prep run
+if [ -f "$TOKEN_FILE" ] && [ -f "$TFVARS_FILE" ]; then
+    echo "✅ Previous prep detected — token and terraform.tfvars already exist. Skipping manual steps..."
+    VCFA_TOKEN=$(cat "$TOKEN_FILE")
+else
+    echo ""
+    echo "╔═══════════════════════════════════════════════════════════════════════╗"
+    echo "║              ⚠️  MANUAL ACTIONS REQUIRED BEFORE CONTINUING           ║"
+    echo "╚═══════════════════════════════════════════════════════════════════════╝"
+    echo ""
+    echo "  All YAML manifests have been saved to your Desktop."
+    echo "  Open vCenter → Workload Management → Supervisor Services"
+    echo "  and perform the following actions:"
+    echo ""
+    echo "  ┌─────────────────────────────────────────────────────────────────┐"
+    echo "  │  1. 📦 UPGRADE the VKS (Kubernetes) Service to v3.5           │"
+    echo "  │     Use: $VKS_YAML_FILE"
+    echo "  │                                                                 │"
+    echo "  │  2. 📦 DEPLOY the ArgoCD Service                               │"
+    echo "  │     Use: $ARGOCD_YAML_FILE"
+    echo "  │                                                                 │"
+    echo "  │  3. 📦 DEPLOY the ArgoCD Attach Fling                          │"
+    echo "  │     Use: $ARGOCD_ATTACH_YAML_FILE"
+    echo "  │                                                                 │"
+    echo "  │  4. 🔑 GET your VCFA API Token                                 │"
+    echo "  │     Go to: https://auto-a.site-a.vcf.lab                       │"
+    echo "  │     Login with credentials from ~/Desktop/password.txt          │"
+    echo "  │     Navigate to your user settings and generate a refresh token │"
+    echo "  └─────────────────────────────────────────────────────────────────┘"
+    echo ""
+    echo "  Complete ALL steps above, then paste your token below to continue."
+    echo ""
+    read -s -p "  🔑 Paste your VCFA API Token here and hit Enter (input hidden): " VCFA_TOKEN
+    echo ""
+    echo ""
+    echo "  Token captured! Saving to Desktop..."
+    echo "$VCFA_TOKEN" > "$TOKEN_FILE"
 
-cd "$REPO_DIR/argo-e2e"
+    cd "$REPO_DIR/argo-e2e"
 
-echo "Injecting static and dynamic variables..."
-cat << EOF > terraform.tfvars
+    echo "Injecting static and dynamic variables..."
+    cat << EOF > terraform.tfvars
 vcenter_server      = "vc-wld01-a.site-a.vcf.lab"
 vcenter_user        = "administrator@wld.sso"
 vcenter_password    = "VMware123!VMware123!"
@@ -694,53 +698,36 @@ bootstrap_revision  = "1.0.1"
 k8s_version         = "v1.34.1+vmware.1"
 vcfa_refresh_token  = "$VCFA_TOKEN"
 EOF
-
-echo "Initializing Terraform..."
-terraform init
-
-echo ""
-echo "╔═══════════════════════════════════════════════════════════════════════╗"
-echo "║                    ✅ PREP COMPLETE!                                 ║"
-echo "╚═══════════════════════════════════════════════════════════════════════╝"
-echo ""
-echo "  All tools installed, configs patched, and Terraform initialized."
-echo "  terraform.tfvars and API token have been saved."
-echo ""
-echo "  When your VKS upgrade, ArgoCD Service, and ArgoCD Attach deployments"
-echo "  are finished in vCenter, re-run this script and choose 'deploy'."
-echo ""
-
-
-###############################################################################
-#                             DEPLOY MODE                                     #
-###############################################################################
-elif [ "$MODE" = "deploy" ]; then
-
-# --- Check Prerequisites ---
-echo "Checking that prep has been completed..."
-
-if [ ! -f "$TFVARS_FILE" ]; then
-    echo "❌ terraform.tfvars not found at $TFVARS_FILE"
-    echo "   Please run this script with 'prep' first."
-    exit 1
 fi
-
-if [ ! -f "$TOKEN_FILE" ]; then
-    echo "❌ VCFA API token not found at $TOKEN_FILE"
-    echo "   Please run this script with 'prep' first."
-    exit 1
-fi
-
-echo "✅ Prep artifacts found. Loading token and proceeding to deploy..."
-VCFA_TOKEN=$(cat "$TOKEN_FILE")
 
 cd "$REPO_DIR/argo-e2e"
 
-
-# --- 9. Terraform Execution Sequence & Bug Fixes ---
 echo "Initializing Terraform..."
 terraform init
 
+
+# --- If prep-only, stop here ---
+if [ "$MODE" = "prep" ]; then
+    echo ""
+    echo "╔═══════════════════════════════════════════════════════════════════════╗"
+    echo "║                    ✅ PREP COMPLETE!                                 ║"
+    echo "╚═══════════════════════════════════════════════════════════════════════╝"
+    echo ""
+    echo "  All tools installed, configs patched, and Terraform initialized."
+    echo "  terraform.tfvars and API token have been saved."
+    echo ""
+    echo "  When your VKS upgrade, ArgoCD Service, and ArgoCD Attach deployments"
+    echo "  are finished in vCenter, re-run this script and choose 'deploy'."
+    echo ""
+    exit 0
+fi
+
+
+###############################################################################
+#                     DEPLOY (only runs in deploy mode)                       #
+###############################################################################
+
+# --- 9. Terraform Execution Sequence & Bug Fixes ---
 echo "Phase 1: Targeting Supervisor Namespace creation..."
 terraform apply -target=module.supervisor_namespace -auto-approve
 
@@ -878,12 +865,10 @@ echo "║             ✅ Field Lab Deployment Complete!                        
 echo "╚═══════════════════════════════════════════════════════════════════════╝"
 echo ""
 echo "  VCF CLI Contexts configured:"
-echo "    • supervisor-ctx  → Supervisor (10.1.0.2)"
-echo "    • vcfa            → VCFA (auto-a.site-a.vcf.lab)"
+echo "    • supervisor-ctx   → Supervisor (10.1.0.2)"
+echo "    • vcfa             → VCFA (auto-a.site-a.vcf.lab)"
 echo "    • e2e-niran-cls-01 → VKS Cluster ($CLUSTER_NAME)"
 echo ""
 echo "  Dropping you into Oh My Zsh..."
 
 exec zsh
-
-fi
