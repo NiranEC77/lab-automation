@@ -9,7 +9,6 @@ To get started, simply open your terminal and paste the following command. This 
 ```bash
 echo 'VMware123!VMware123!' | sudo -S sed -i '0,/multiverse/s/multiverse/multiverse\ main\ restricted\ universe/' /etc/apt/sources.list.d/ubuntu.sources && sudo apt update -y && sudo apt install git -y && cd ~/Downloads && rm -rf vcf9-adv-deploy-lab-setup && git clone [https://github.com/bstein-vmware/vcf9-adv-deploy-lab-setup.git](https://github.com/bstein-vmware/vcf9-adv-deploy-lab-setup.git) && cd vcf9-adv-deploy-lab-setup && chmod +x setup.sh && ./setup.sh && rm -rf lab-automation && git clone [https://github.com/NiranEC77/lab-automation](https://github.com/NiranEC77/lab-automation) && cd lab-automation && chmod +x setup-lab.sh && ./setup-lab.sh
 ```
-*(Note: Remove the spaces between the backticks above when using it)*
 
 ## ⚠️ Required Manual Steps
 
