@@ -90,13 +90,31 @@ register_version() {
     echo "   YAML file: $YAML_FILE"
     echo "   Content type: $CONTENT_TYPE"
 
-    local YAML_JSON=$(yaml_to_json_string "$YAML_FILE")
+    # Build JSON payload properly via python3 to avoid bash escaping issues
+    local PAYLOAD_FILE=$(mktemp /tmp/svc-payload-XXXXXX.json)
+    python3 -c "
+import json, sys
+with open('$YAML_FILE', 'r') as f:
+    yaml_content = f.read()
+payload = {
+    'spec': {
+        'content_type': '$CONTENT_TYPE',
+        'content': yaml_content
+    }
+}
+with open('$PAYLOAD_FILE', 'w') as out:
+    json.dump(payload, out)
+"
+    echo "   Payload size: $(wc -c < "$PAYLOAD_FILE") bytes"
+    echo "   Payload preview: $(head -c 200 "$PAYLOAD_FILE")..."
 
     local RESPONSE=$(curl -k -s -w "\nHTTP_CODE:%{http_code}" -X POST \
       -H "vmware-api-session-id: $SID" \
       -H "Content-Type: application/json" \
       "$VCENTER/api/vcenter/namespace-management/supervisor-services/$SVC_ID/versions" \
-      -d "{\"spec\": {\"content_type\": \"$CONTENT_TYPE\", \"content\": $YAML_JSON}}")
+      -d "@$PAYLOAD_FILE")
+
+    rm -f "$PAYLOAD_FILE"
 
     local HTTP_CODE=$(echo "$RESPONSE" | grep "HTTP_CODE:" | cut -d: -f2)
     local BODY=$(echo "$RESPONSE" | grep -v "HTTP_CODE:")
