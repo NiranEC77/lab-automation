@@ -1,5 +1,5 @@
 #!/bin/bash
-# Supervisor Services Automation - Pipe Method
+# Supervisor Services Automation - Debug & Pipe Method
 
 VCENTER="https://vc-wld01-a.site-a.vcf.lab"
 VCENTER_USER="administrator@wld.sso"
@@ -17,10 +17,10 @@ if [ -z "$SID" ] || [ "$SID" = "null" ]; then
     SID=$(curl -k -s -u "$VCENTER_USER:$VCENTER_PASS" -X POST "$VCENTER/rest/com/vmware/cis/session" | jq -r '.value')
 fi
 
-[ -z "$SID" ] || [ "$SID" = "null" ] && echo "❌ Auth Failed" && exit 1
+if [ -z "$SID" ] || [ "$SID" = "null" ]; then echo "❌ Auth Failed"; exit 1; fi
 echo "   ✅ Authenticated"
 
-# --- Helper: Register Version (The Pipe Method) ---
+# --- Helper: Register Version ---
 register_version() {
     local SVC_ID="$1"
     local YAML_FILE="$2"
@@ -29,11 +29,15 @@ register_version() {
 
     echo "-> Registering $LABEL ($CONTENT_TYPE)..."
 
-    # Generate JSON and pipe it directly to curl using -d @-
+    # Use Python to generate the JSON and pipe it to curl
+    # Note: We capture both the Body and the HTTP Code
     local RESPONSE=$(python3 -c "
 import json
-with open('$YAML_FILE', 'r') as f:
-    print(json.dumps({'spec': {'content_type': '$CONTENT_TYPE', 'content': f.read()}}))
+try:
+    with open('$YAML_FILE', 'r') as f:
+        print(json.dumps({'spec': {'content_type': '$CONTENT_TYPE', 'content': f.read()}}))
+except Exception as e:
+    pass
 " | curl -k -s -w "\nHTTP_CODE:%{http_code}" -X POST \
       -H "vmware-api-session-id: $SID" \
       -H "Content-Type: application/json" \
@@ -41,11 +45,27 @@ with open('$YAML_FILE', 'r') as f:
       "$VCENTER/api/vcenter/namespace-management/supervisor-services/$SVC_ID/versions")
 
     local HTTP_CODE=$(echo "$RESPONSE" | tail -n1 | cut -d: -f2)
-    echo "   HTTP Status: $HTTP_CODE"
+    local BODY=$(echo "$RESPONSE" | sed '$d')
 
-    if [[ ! "$HTTP_CODE" =~ ^20[0-9]$ ]] && [ "$CONTENT_TYPE" = "VSPHERE" ]; then
-        echo "   Retrying as CARVEL..."
-        register_version "$SVC_ID" "$YAML_FILE" "$LABEL" "CARVEL"
+    if [[ "$HTTP_CODE" =~ ^20[0-9]$ ]]; then
+        echo "   ✅ Version registered successfully!"
+        return 0
+    else
+        echo "   ❌ Failed with Status: $HTTP_CODE"
+        echo "   Detailed Error: $BODY"
+        
+        # If it failed because it already exists, that's actually a 'success' for us
+        if [[ "$BODY" == *"already exists"* ]]; then
+            echo "   Proceeding because version is already present in catalog."
+            return 0
+        fi
+
+        if [ "$CONTENT_TYPE" = "VSPHERE" ]; then
+            echo "   Retrying as CARVEL..."
+            register_version "$SVC_ID" "$YAML_FILE" "$LABEL" "CARVEL"
+            return $?
+        fi
+        return 1
     fi
 }
 
@@ -53,25 +73,39 @@ with open('$YAML_FILE', 'r') as f:
 upgrade_service() {
     local SVC_ID="$1"
     local VERSION="$2"
-    echo "-> Patching Cluster to version $VERSION..."
-    curl -k -s -o /dev/null -X PATCH \
+    echo "-> Patching Cluster $SUPERVISOR_CLUSTER to version $VERSION..."
+    
+    local RESPONSE=$(curl -k -s -w "\nHTTP_CODE:%{http_code}" -X PATCH \
       -H "vmware-api-session-id: $SID" \
       -H "Content-Type: application/json" \
       -d "{\"spec\": {\"version\": \"$VERSION\"}}" \
-      "$VCENTER/api/vcenter/namespace-management/clusters/$SUPERVISOR_CLUSTER/supervisor-services/$SVC_ID"
-    echo "   ✅ Upgrade command sent."
+      "$VCENTER/api/vcenter/namespace-management/clusters/$SUPERVISOR_CLUSTER/supervisor-services/$SVC_ID")
+    
+    local HTTP_CODE=$(echo "$RESPONSE" | tail -n1 | cut -d: -f2)
+    local BODY=$(echo "$RESPONSE" | sed '$d')
+
+    if [[ "$HTTP_CODE" =~ ^20[0-9]$ ]]; then
+        echo "   ✅ Upgrade command accepted by vCenter."
+    else
+        echo "   ❌ Patch Failed ($HTTP_CODE): $BODY"
+    fi
 }
 
 # --- Main ---
 case "$ACTION" in
     list)
-        curl -k -s -H "vmware-api-session-id: $SID" "$VCENTER/api/vcenter/namespace-management/supervisor-services" | jq -r '.[] | "\(.display_name) (\(.supervisor_service // .service))"'
+        echo "Listing Services..."
+        curl -k -s -H "vmware-api-session-id: $SID" "$VCENTER/api/vcenter/namespace-management/supervisor-services" | jq -r '.[] | "Name: \(.display_name) | ID: \(.supervisor_service // .service)"'
         ;;
     vks)
-        # 1. Register the version in the catalog
-        register_version "tkg.vsphere.vmware.com" "$DESKTOP_DIR/vks-upgrade-3.5.1.yaml" "VKS v3.5.1"
-        # 2. Tell the cluster to actually use that version
-        upgrade_service "tkg.vsphere.vmware.com" "3.5.1"
+        # We try to register first. If it returns 0 (Success or Already Exists), we patch.
+        if register_version "tkg.vsphere.vmware.com" "$DESKTOP_DIR/vks-upgrade-3.5.1.yaml" "VKS v3.5.1"; then
+            echo ""
+            upgrade_service "tkg.vsphere.vmware.com" "3.5.1"
+        else
+            echo ""
+            echo "❌ Registration failed. Skipping Patch command to avoid false positives."
+        fi
         ;;
     *)
         echo "Usage: $0 [list|vks]"
