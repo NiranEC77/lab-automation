@@ -847,12 +847,60 @@ fi
 echo "-> Switching to namespace context: $NS_CTX"
 yes | vcf context use "$NS_CTX" 2>/dev/null || echo "   (context switch warning — continuing)"
 
+# Wait for the cluster to be fully ready (Pinniped Concierge needs time after Terraform)
+echo ""
+echo "-> Waiting for VKS cluster to be fully ready before configuring auth..."
+echo "   (The cluster needs time after Terraform to initialize Pinniped components)"
+echo "   Checking every 30 seconds for up to 15 minutes..."
+echo ""
+
+CLUSTER_READY=false
+for i in $(seq 1 30); do
+    # Try fetching kubeconfig as a readiness check
+    if timeout 15 bash -c "yes | vcf cluster kubeconfig get \"$CLUSTER_NAME\" --export-file /tmp/cluster-readiness-check.kubeconfig 2>&1" >/dev/null 2>&1; then
+        rm -f /tmp/cluster-readiness-check.kubeconfig
+        CLUSTER_READY=true
+        echo "   ✅ Cluster API is responding! Proceeding with auth setup..."
+        break
+    fi
+    echo "   ⏳ Cluster not ready yet... (attempt $i/30)"
+    sleep 30
+done
+
+if [ "$CLUSTER_READY" = "false" ]; then
+    echo "⚠️ Cluster did not become ready within 15 minutes."
+    echo "   Run test-cluster-ctx.sh manually once the cluster is up."
+    echo ""
+    echo "╔═══════════════════════════════════════════════════════════════════════╗"
+    echo "║             ⚠️  Deployment Partially Complete                        ║"
+    echo "╚═══════════════════════════════════════════════════════════════════════╝"
+    echo ""
+    echo "  Infrastructure deployed, but cluster context not yet configured."
+    echo "  Run: ./test-cluster-ctx.sh  (once the cluster finishes provisioning)"
+    echo ""
+    exec zsh
+fi
+
+# Give Pinniped Concierge a little extra time to stabilize after API is up
+echo "-> Waiting 60s for Pinniped Concierge to stabilize..."
+sleep 60
+
+# Register JWT authenticator with retry logic
 echo "-> Registering VCFA JWT authenticator on the cluster..."
-echo "   (This can take a minute — waiting up to 2 minutes...)"
-if ! timeout 120 bash -c "yes | vcf cluster register-vcfa-jwt-authenticator \"$CLUSTER_NAME\" 2>&1"; then
-    echo "⚠️ JWT authenticator registration timed out or failed."
-    echo "   You can run this manually later:"
-    echo "   vcf cluster register-vcfa-jwt-authenticator $CLUSTER_NAME"
+JWT_OK=false
+for attempt in $(seq 1 3); do
+    echo "   Attempt $attempt/3..."
+    if timeout 120 bash -c "yes | vcf cluster register-vcfa-jwt-authenticator \"$CLUSTER_NAME\" 2>&1"; then
+        JWT_OK=true
+        break
+    fi
+    echo "   Retrying in 30 seconds..."
+    sleep 30
+done
+
+if [ "$JWT_OK" = "false" ]; then
+    echo "⚠️ JWT authenticator registration failed after 3 attempts."
+    echo "   You can retry with: vcf cluster register-vcfa-jwt-authenticator $CLUSTER_NAME"
 fi
 
 echo "-> Fetching kubeconfig for the VKS cluster..."
@@ -880,6 +928,17 @@ if [ -f ~/.kube/config ] && grep -q "$CLUSTER_NAME" ~/.kube/config 2>/dev/null; 
     if ! timeout 60 bash -c "yes | vcf context create e2e-niran-cls-01 --kubeconfig ~/.kube/config --kubecontext \"$CLUSTER_CTX\" --type cci 2>&1"; then
         echo "⚠️ Context creation timed out. You can run this manually:"
         echo "   vcf context create e2e-niran-cls-01 --kubeconfig ~/.kube/config --kubecontext $CLUSTER_CTX --type cci"
+    fi
+
+    # Verify the context actually works
+    echo ""
+    echo "-> Verifying cluster access..."
+    sleep 5
+    if timeout 30 kubectl --context "$CLUSTER_CTX" get ns >/dev/null 2>&1; then
+        echo "   ✅ Cluster access verified! kubectl is working."
+    else
+        echo "   ⚠️ Cluster auth not working yet. Pinniped may still be initializing."
+        echo "   If this persists, run: ./test-cluster-ctx.sh"
     fi
 else
     echo "⚠️ Kubeconfig does not contain $CLUSTER_NAME yet."
