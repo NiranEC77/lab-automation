@@ -8,6 +8,31 @@ CLUSTER_NAME="e2e-niran-cls01"
 echo ""
 echo "Configuring VKS cluster context for $CLUSTER_NAME..."
 
+# Recreate the VCFA context so namespace contexts show up in the list
+LAB_DIR="$HOME/field-lab"
+VCFA_CERT_PATH="$LAB_DIR/vcfa_chain.pem"
+TOKEN_FILE="$HOME/Desktop/vcfa_api_token.txt"
+VCFA_TOKEN=$(cat "$TOKEN_FILE" 2>/dev/null)
+
+if [ -z "$VCFA_TOKEN" ]; then
+    echo "⚠️ No VCFA token found at $TOKEN_FILE"
+    read -s -p "   Paste your VCFA API Token: " VCFA_TOKEN
+    echo ""
+fi
+
+echo "-> Deleting existing VCFA context..."
+vcf context delete vcfa 2>/dev/null || true
+
+echo "-> Fetching VCFA certificate chain..."
+openssl s_client -showcerts -connect auto-a.site-a.vcf.lab:443 </dev/null 2>/dev/null | awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/{print}' > "$VCFA_CERT_PATH"
+
+echo "-> Recreating VCFA context..."
+vcf context create vcfa \
+  --endpoint auto-a.site-a.vcf.lab \
+  --api-token "$VCFA_TOKEN" \
+  --tenant-name all-apps \
+  --ca-certificate "$VCFA_CERT_PATH" 2>/dev/null || echo "   Context creation returned a warning. Continuing..."
+
 # We need a namespace-level context (e.g. vcfa:e2e-ns), not the top-level vcfa context.
 # Auto-detect the namespace context from the list of available contexts.
 echo "-> Finding VCFA namespace context..."
