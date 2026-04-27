@@ -640,7 +640,63 @@ Lab Password: $LAB_PASS
 EOF
 
 
-# --- 8. Manual Intervention & Token Capture ---
+# --- 8. VCF CLI Setup ---
+echo "Pre-configuring VCF CLI (EULA, CEIP, and plugins)..."
+export TANZU_CLI_EULA_PROMPT_ANSWER=Yes
+export TANZU_CLI_CEIP_OPT_IN_PROMPT_ANSWER=Yes
+vcf plugin sync 2>/dev/null || true
+vcf telemetry update --opted-out 2>/dev/null || true
+
+echo "Creating VCF Supervisor Context..."
+vcf context create supervisor-ctx \
+  --endpoint 10.1.0.2 \
+  --username administrator@wld.sso \
+  --password "$LAB_PASS" \
+  --insecure-skip-tls-verify \
+  -t kubernetes \
+  --auth-type basic 2>/dev/null || echo "Context may already exist. Continuing..."
+
+
+# --- 9. Content Library SSL Fix (pre-flight) ---
+echo ""
+echo "Patching Content Library SSL Certificates to prevent deployment errors..."
+
+set +e  # Best-effort fixes — don't crash if vCenter API hiccups
+SID=$(curl -k -s -X POST -u "administrator@wld.sso:$LAB_PASS" "https://vc-wld01-a.site-a.vcf.lab/rest/com/vmware/cis/session" | jq -r .value)
+
+LIB_IDS=$(curl -k -s -X GET -H "vmware-api-session-id: $SID" "https://vc-wld01-a.site-a.vcf.lab/api/content/subscribed-library" | jq -r '.[]' 2>/dev/null)
+
+for LIB_ID in $LIB_IDS; do
+    LIB_INFO=$(curl -k -s -X GET -H "vmware-api-session-id: $SID" "https://vc-wld01-a.site-a.vcf.lab/api/content/subscribed-library/$LIB_ID" 2>/dev/null)
+    URL=$(echo "$LIB_INFO" | jq -r '.subscription_info.subscription_url // empty' 2>/dev/null)
+    
+    if [[ "$URL" == https* ]]; then
+        HOST=$(echo "$URL" | awk -F/ '{print $3}')
+        THUMBPRINT=$(echo -n | openssl s_client -connect ${HOST}:443 2>/dev/null | openssl x509 -noout -fingerprint -sha1 | cut -d'=' -f2)
+        
+        if [ ! -z "$THUMBPRINT" ]; then
+            echo "-> Trusting SSL thumbprint for $HOST ($THUMBPRINT)..."
+            curl -k -s -X PATCH -H "vmware-api-session-id: $SID" -H "Content-Type: application/json" \
+              -d "{\"subscription_info\": {\"ssl_thumbprint\": \"$THUMBPRINT\"}}" \
+              "https://vc-wld01-a.site-a.vcf.lab/api/content/subscribed-library/$LIB_ID"
+              
+            echo "-> Forcing sync for library $LIB_ID..."
+            curl -k -s -X POST -H "vmware-api-session-id: $SID" "https://vc-wld01-a.site-a.vcf.lab/api/content/subscribed-library/$LIB_ID?action=sync"
+        fi
+    fi
+done
+echo "✅ Content Library SSL fix applied."
+set -e
+
+
+# --- 10. VCFA Certificate & Context ---
+echo ""
+echo "Fetching VCFA certificate chain..."
+VCFA_CERT_PATH="$LAB_DIR/vcfa_chain.pem"
+openssl s_client -showcerts -connect auto-a.site-a.vcf.lab:443 </dev/null 2>/dev/null | awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/{print}' > "$VCFA_CERT_PATH"
+
+
+# --- 11. Manual Intervention & Token Capture ---
 # Skip if token and tfvars already exist from a previous prep run
 if [ -f "$TOKEN_FILE" ] && [ -f "$TFVARS_FILE" ]; then
     echo "✅ Previous prep detected — token and terraform.tfvars already exist. Skipping manual steps..."
@@ -700,6 +756,14 @@ vcfa_refresh_token  = "$VCFA_TOKEN"
 EOF
 fi
 
+# Create the VCFA Context (needs token, done after capture)
+echo "Creating VCFA CLI context..."
+vcf context create vcfa \
+  --endpoint auto-a.site-a.vcf.lab \
+  --api-token "$VCFA_TOKEN" \
+  --tenant-name all-apps \
+  --ca-certificate "$VCFA_CERT_PATH" 2>/dev/null || echo "VCFA context may already exist. Continuing..."
+
 cd "$REPO_DIR/argo-e2e"
 
 echo "Initializing Terraform..."
@@ -714,10 +778,14 @@ if [ "$MODE" = "prep" ]; then
     echo "╚═══════════════════════════════════════════════════════════════════════╝"
     echo ""
     echo "  All tools installed, configs patched, and Terraform initialized."
+    echo "  VCF CLI contexts (supervisor-ctx, vcfa) are configured."
+    echo "  Content Library SSL certificates have been trusted."
     echo "  terraform.tfvars and API token have been saved."
     echo ""
-    echo "  When your VKS upgrade, ArgoCD Service, and ArgoCD Attach deployments"
-    echo "  are finished in vCenter, re-run this script and choose 'deploy'."
+    echo "  You can now run 'terraform apply' manually from:"
+    echo "  $REPO_DIR/argo-e2e"
+    echo ""
+    echo "  Or re-run this script and choose 'deploy' for full automation."
     echo ""
     exit 0
 fi
@@ -727,31 +795,14 @@ fi
 #                     DEPLOY (only runs in deploy mode)                       #
 ###############################################################################
 
-# --- 9. Terraform Execution Sequence & Bug Fixes ---
+# --- 12. Terraform Execution ---
 echo "Phase 1: Targeting Supervisor Namespace creation..."
 terraform apply -target=module.supervisor_namespace -auto-approve
 
-echo "Pre-configuring VCF CLI (EULA, CEIP, and plugins)..."
-export TANZU_CLI_EULA_PROMPT_ANSWER=Yes
-export TANZU_CLI_CEIP_OPT_IN_PROMPT_ANSWER=Yes
-vcf plugin sync 2>/dev/null || true
-vcf telemetry update --opted-out 2>/dev/null || true
-
-echo "Creating VCF Supervisor Context..."
-vcf context create supervisor-ctx \
-  --endpoint 10.1.0.2 \
-  --username administrator@wld.sso \
-  --password "$LAB_PASS" \
-  --insecure-skip-tls-verify \
-  -t kubernetes \
-  --auth-type basic 2>/dev/null || echo "Context may already exist. Continuing..."
-
-
-# Temporarily disable exit-on-error. These API fixes are "best effort" 
-# and shouldn't crash the entire deployment if VMware changes an endpoint!
+# Temporarily disable exit-on-error for best-effort API fixes
 set +e
 
-# --> CAPACITY BUG FIX START <--
+# --> CAPACITY BUG FIX (requires namespace to exist) <--
 echo "Applying vCenter capacity/usage bugfix to unstick the namespace..."
 sleep 5 # Give k8s a few seconds to register the newly created namespace
 
@@ -764,39 +815,8 @@ if [ ! -z "$NS_NAME" ]; then
       -d '{"resource_spec": {"memory_limit": 1048576}}'
     echo "✅ Namespace capacity update automatically saved."
 fi
-# --> CAPACITY BUG FIX END <--
-
-
-# --> CONTENT LIBRARY SSL FIX START <--
-echo "Patching Content Library SSL Certificates to bypass deployment errors..."
-
-# Fetching the Content Libraries
-LIB_IDS=$(curl -k -s -X GET -H "vmware-api-session-id: $SID" "https://vc-wld01-a.site-a.vcf.lab/api/content/subscribed-library" | jq -r '.[]' 2>/dev/null)
-
-for LIB_ID in $LIB_IDS; do
-    LIB_INFO=$(curl -k -s -X GET -H "vmware-api-session-id: $SID" "https://vc-wld01-a.site-a.vcf.lab/api/content/subscribed-library/$LIB_ID" 2>/dev/null)
-    URL=$(echo "$LIB_INFO" | jq -r '.subscription_info.subscription_url // empty' 2>/dev/null)
-    
-    if [[ "$URL" == https* ]]; then
-        HOST=$(echo "$URL" | awk -F/ '{print $3}')
-        THUMBPRINT=$(echo -n | openssl s_client -connect ${HOST}:443 2>/dev/null | openssl x509 -noout -fingerprint -sha1 | cut -d'=' -f2)
-        
-        if [ ! -z "$THUMBPRINT" ]; then
-            echo "-> Trusting SSL thumbprint for $HOST ($THUMBPRINT)..."
-            curl -k -s -X PATCH -H "vmware-api-session-id: $SID" -H "Content-Type: application/json" \
-              -d "{\"subscription_info\": {\"ssl_thumbprint\": \"$THUMBPRINT\"}}" \
-              "https://vc-wld01-a.site-a.vcf.lab/api/content/subscribed-library/$LIB_ID"
-              
-            echo "-> Forcing sync for library $LIB_ID..."
-            curl -k -s -X POST -H "vmware-api-session-id: $SID" "https://vc-wld01-a.site-a.vcf.lab/api/content/subscribed-library/$LIB_ID?action=sync"
-        fi
-    fi
-done
-# --> CONTENT LIBRARY SSL FIX END <--
-
 
 echo "Phase 2: Applying the rest of the infrastructure (ArgoCD, K8s cluster, etc.)..."
-# Notice we keep `set +e` active here! This guarantees the script won't crash if Terraform throws a fit.
 terraform apply -auto-approve
 if [ $? -ne 0 ]; then
     echo "⚠️ Terraform encountered a known provider bug with VKS CRDs."
@@ -805,28 +825,11 @@ if [ $? -ne 0 ]; then
     terraform apply -auto-approve || echo "⚠️ Terraform still complaining, but cluster is up. Proceeding to context setup!"
 fi
 
-# Re-enable exit-on-error just to be clean for the final steps
+# Re-enable exit-on-error
 set -e
 
 
-# --- 10. Post-Deployment Context Configuration ---
-echo "Configuring VCF CLI contexts..."
-
-# Fetching VCFA certificate chain
-echo "-> Fetching VCFA certificate chain..."
-VCFA_CERT_PATH="$LAB_DIR/vcfa_chain.pem"
-openssl s_client -showcerts -connect auto-a.site-a.vcf.lab:443 </dev/null 2>/dev/null | awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/{print}' > "$VCFA_CERT_PATH"
-
-# Create the VCFA Context
-echo "-> Creating VCFA context..."
-vcf context create vcfa \
-  --endpoint auto-a.site-a.vcf.lab \
-  --api-token "$VCFA_TOKEN" \
-  --tenant-name all-apps \
-  --ca-certificate "$VCFA_CERT_PATH" 2>/dev/null || echo "VCFA context may already exist. Continuing..."
-
-
-# --- 11. VKS Cluster Context Configuration ---
+# --- 13. VKS Cluster Context Configuration ---
 echo ""
 echo "Configuring VKS cluster context for $CLUSTER_NAME..."
 
