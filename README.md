@@ -7,7 +7,7 @@ Welcome to the Field Lab automation project! This repository contains a fully au
 To get started, simply open your terminal and paste the following command. This is all you need to do to kick off the entire deployment:
 
 ```bash
-echo 'VMware123!VMware123!' | sudo -S sed -i '0,/multiverse/s/multiverse/multiverse\ main\ restricted\ universe/' /etc/apt/sources.list.d/ubuntu.sources && sudo apt update -y && sudo apt install git -y && cd ~/Downloads && rm -rf vcf9-adv-deploy-lab-setup && git clone https://github.com/bstein-vmware/vcf9-adv-deploy-lab-setup.git && cd vcf9-adv-deploy-lab-setup && chmod +x setup.sh && ./setup.sh && rm -rf lab-automation && git clone https://github.com/NiranEC77/lab-automation && cd lab-automation && chmod +x setup-lab.sh && ./setup-lab.sh
+echo 'VMware123!VMware123!' | sudo -S apt update -y && sudo apt install -y git && cd ~/Downloads && git clone https://github.com/NiranEC77/lab-automation && cd lab-automation && chmod +x setup-lab.sh && ./setup-lab.sh
 ```
 
 ## 🎛️ Modes of Operation
@@ -18,11 +18,11 @@ The script starts by asking you to choose a mode. After that, everything is auto
 
 Choose this when you want to get the environment ready while VKS upgrades and ArgoCD deployments are still installing in vCenter.
 
-- Drops YAML manifests to the Desktop immediately
 - Installs all CLIs & prerequisites
+- Installs and activates supervisor services (VKS upgrade, ArgoCD, ArgoCD Attach) via PowerCLI
 - Configures Zsh + Oh My Zsh
 - Clones and patches the Terraform repo
-- Captures your VCFA API token
+- Automatically generates and stores your VCFA API token
 - Writes `terraform.tfvars` and runs `terraform init`
 - **Stops here** — does NOT run `terraform apply`
 
@@ -37,34 +37,23 @@ Choose this for the complete flow. Deploy runs **all prep steps first** (skippin
 
 > **Re-run friendly:** If prep was already completed, deploy detects the existing token and `terraform.tfvars` and skips straight to the Terraform and context setup phases.
 
-## ⚠️ Required Manual Steps
-
-While the script automates the vast majority of the deployment, it pauses once to let you perform a few manual tasks in the vCenter UI. The script generates all necessary YAML files and places them on your Desktop to make this easy.
-
-During the pause, you will need to:
-
-| Step | Action | YAML on Desktop |
-|------|--------|----------------|
-| 1 | **Upgrade VKS** to v3.5 | `vks-upgrade-3.5.1.yaml` |
-| 2 | **Deploy ArgoCD Service** | `argocd-service-1.1.0.yaml` |
-| 3 | **Deploy ArgoCD Attach Fling** | `argocd-attach-1.0.7.yaml` |
-| 4 | **Get VCFA API Token** | *(paste into script prompt)* |
-
-> Navigate to **vCenter → Workload Management → Supervisor Services** to perform steps 1–3. For step 4, log into VCFA at `https://auto-a.site-a.vcf.lab` with credentials from `~/Desktop/password.txt` and generate a refresh token.
 
 ## 🛠️ What This Script Does
 
-### 1. YAML Manifests (Dropped First)
-Before anything else, the script writes three YAML manifests to your Desktop so you can start manual upgrades in vCenter immediately while the rest of the setup runs in parallel:
-* `argocd-service-1.1.0.yaml` — ArgoCD Supervisor Service package
-* `vks-upgrade-3.5.1.yaml` — VKS (Kubernetes Service) v3.5.1 upgrade package
-* `argocd-attach-1.0.7.yaml` — ArgoCD Attach Fling package
-
-### 2. Bootstrap (System Preparation)
+### 1. Bootstrap (System Preparation)
 * **Folder Structure:** Creates standard directories (`~/field-lab`, `~/.local/bin`, `~/Desktop`).
-* **Package Management:** Updates Ubuntu and automatically fixes broken APT dependencies.
-* **Core Dependencies:** Installs `curl`, `unzip`, `git`, `jq`, `gpg`, `zsh`, and `expect`.
-* **Infrastructure CLIs:** Downloads and installs the latest stable versions of Kubectl and Terraform.
+* **Package Management:** Expands Ubuntu APT sources, updates packages, and fixes broken dependencies.
+* **Core Dependencies:** Installs `curl`, `unzip`, `git`, `jq`, `gpg`, `zsh`, `expect`, `kubectx`, `kubens`, `kubecolor`, and `fzf`.
+* **VCF CLI:** Downloads and installs VCF CLI v9.0.2 from Broadcom.
+* **ArgoCD CLI:** Downloads and installs ArgoCD CLI v3.0.19.
+* **Infrastructure CLIs:** Downloads and installs the latest stable versions of kubectl and Terraform.
+* **PowerShell & PowerCLI:** Installs PowerShell Core and VMware PowerCLI for supervisor service automation.
+
+### 2. Supervisor Service Installation
+* Upgrades VKS (Kubernetes Service) to v3.5.1.
+* Deploys the ArgoCD Supervisor Service.
+* Deploys the ArgoCD Attach Fling.
+* Uses a generic PowerCLI script that handles both new service registration and version upgrades automatically. YAML manifests are committed to the repo as `vks-upgrade-3.5.1.yaml`, `argocd-service-1.1.0.yaml`, and `argo-attach.yaml`.
 
 ### 3. Pimp the Terminal
 * **Zsh Integration:** Installs `zsh` and sets it as your default shell.
@@ -72,7 +61,7 @@ Before anything else, the script writes three YAML manifests to your Desktop so 
 * **Productivity Plugins:** Auto-suggestions, syntax-highlighting, git, and kubectl autocomplete.
 * **Aliases:** Persistent shortcuts — `k` for kubectl, `tf` for terraform.
 
-### 4. Terraform Repo & Patching
+### 5. Terraform Repo & Patching
 * **Git Automation:** Clones the `vcfa-terraform-examples` repository.
 * **On-the-fly Patching:** Automatically patches modules before deploy:
   * Storage policy → `cluster-wld01-01a vSAN Storage Policy`
@@ -80,16 +69,16 @@ Before anything else, the script writes three YAML manifests to your Desktop so 
   * ArgoCD version → `3.0.19+vmware.1-vks.1`
   * Storage class → `cluster-wld01-01a-vsan-storage-policy`
 
-### 5. Terraform Execution
+### 6. Terraform Execution
 * **Phase 1:** Targeted apply for Supervisor Namespace creation.
 * **Phase 2:** Full apply for ArgoCD instances, VKS clusters, and remaining infrastructure.
 * **Smart Retry:** Automatically handles the known VKS CRD provider bug with state refresh and retry logic.
 
-### 6. Automated API Bug Fixes
+### 7. Automated API Bug Fixes
 * **Capacity Bug:** Uses the vCenter API to patch Namespace memory limits so the namespace doesn't get stuck.
 * **Content Library SSL:** Detects and trusts Content Library SSL thumbprints, then forces a sync to prevent deployment hang-ups.
 
-### 7. VCF CLI Context Configuration
+### 8. VCF CLI Context Configuration
 The script automatically configures three VCF CLI contexts:
 
 | Context | Type | Purpose |
@@ -106,9 +95,9 @@ For the VKS cluster context, the script:
 
 > All VCF CLI commands include timeout protection and automatic prompt handling to prevent the script from hanging.
 
-### 8. Finish Up
+### 9. Finish Up
 * **Certificate Trust:** Downloads the VCFA SSL certificate chain for CLI trust.
-* **API Token Management:** Securely captures and stores your VCFA refresh token.
+* **API Token Management:** Automatically generates and stores your VCFA refresh token via the VCFA OAuth API.
 * **Credentials:** Saves lab username/password to `~/Desktop/password.txt`.
 * **Oh My Zsh:** Drops you into a fully authenticated, themed terminal when complete.
 
@@ -117,7 +106,10 @@ For the VKS cluster context, the script:
 | File | Description |
 |------|-------------|
 | `setup-lab.sh` | Main automation script (prep/deploy modes) |
+| `install-supervisor-services.ps1` | PowerCLI script — generic supervisor service install/upgrade |
+| `vcfa-token.py` | Automated VCFA OAuth token generation |
+| `argocd-service-1.1.0.yaml` | ArgoCD Supervisor Service package YAML |
+| `vks-upgrade-3.5.1.yaml` | VKS 3.5.1 upgrade package YAML |
+| `argo-attach.yaml` | ArgoCD Attach Fling package YAML |
 | `test-cluster-ctx.sh` | Standalone test script for VKS cluster context setup |
-| `argo-attach.yaml` | ArgoCD Attach Fling package YAML (reference) |
-| `vks3.5.1.yaml` | VKS 3.5.1 upgrade package YAML (reference) |
 | `README.md` | This file |

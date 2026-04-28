@@ -64,10 +64,20 @@ TFVARS_FILE="$REPO_DIR/argo-e2e/terraform.tfvars"
 
 # --- 3. Install CLIs & Prerequisites ---
 echo "Checking prerequisites..."
+
+# Ensure all Ubuntu repo components are available (main, restricted, universe alongside multiverse)
+if [ -f /etc/apt/sources.list.d/ubuntu.sources ] && \
+   ! grep -q "main restricted universe" /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null; then
+    echo "Expanding Ubuntu apt sources..."
+    echo "$LAB_PASS" | sudo -S sed -i \
+        '0,/multiverse/s/multiverse/multiverse main restricted universe/' \
+        /etc/apt/sources.list.d/ubuntu.sources
+fi
+
 echo "$LAB_PASS" | sudo -S apt-get update -y
 echo "$LAB_PASS" | sudo -S apt-get --fix-broken install -y
 
-TOOLS="curl unzip git jq gpg zsh expect"
+TOOLS="curl unzip git jq gpg zsh expect kubectx kubens kubecolor vim fzf"
 for tool in $TOOLS; do
     if ! command -v $tool &> /dev/null; then
         echo "Installing $tool..."
@@ -109,6 +119,22 @@ if ! pwsh -NonInteractive -Command "Get-Module -ListAvailable VMware.PowerCLI" 2
     echo "Installing VMware PowerCLI..."
     pwsh -NonInteractive -Command \
         "Install-Module VMware.PowerCLI -Scope CurrentUser -Force -SkipPublisherCheck -AllowClobber"
+fi
+
+if ! command -v vcf &> /dev/null; then
+    echo "Installing VCF CLI..."
+    curl -fsSLO "https://packages.broadcom.com/artifactory/vcf-distro/vcf-cli/linux/amd64/v9.0.2/vcf-cli.tar.gz"
+    tar -xf vcf-cli.tar.gz
+    echo "$LAB_PASS" | sudo -S install vcf-cli-linux_amd64 /usr/local/bin/vcf
+    rm -f vcf-cli.tar.gz vcf-cli-linux_amd64
+fi
+
+if ! command -v argocd &> /dev/null; then
+    echo "Installing ArgoCD CLI..."
+    curl -fsSL -o /tmp/argocd \
+        "https://github.com/argoproj/argo-cd/releases/download/v3.0.19/argocd-linux-amd64"
+    echo "$LAB_PASS" | sudo -S install /tmp/argocd /usr/local/bin/argocd
+    rm -f /tmp/argocd
 fi
 
 if ! command -v kubectl &> /dev/null; then
@@ -165,6 +191,8 @@ fi
 echo "Setting up aliases..."
 cat << 'EOF' > "$HOME/.lab_aliases"
 alias k='kubectl'
+alias kctx='kubectx'
+alias kns='kubens'
 alias tf='terraform'
 EOF
 
@@ -220,6 +248,9 @@ vcf context create supervisor-ctx \
   --insecure-skip-tls-verify \
   -t kubernetes \
   --auth-type basic 2>/dev/null || echo "Context may already exist. Continuing..."
+
+echo "Setting supervisor-ctx as current context..."
+vcf context use supervisor-ctx 2>/dev/null || true
 
 
 # --- 9. Content Library SSL Fix (pre-flight) ---
