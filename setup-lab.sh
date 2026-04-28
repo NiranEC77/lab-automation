@@ -37,6 +37,7 @@ echo ""
 
 # --- 1. Variables & Folder Structure ---
 LAB_PASS="VMware123!VMware123!"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "Verifying folder structure..."
 LAB_DIR="$HOME/field-lab"
@@ -51,473 +52,14 @@ mkdir -p "$DESKTOP_DIR"
 
 export PATH="$BIN_DIR:$PATH"
 
-ARGOCD_YAML_FILE="$DESKTOP_DIR/argocd-service-1.1.0.yaml"
-VKS_YAML_FILE="$DESKTOP_DIR/vks-upgrade-3.5.1.yaml"
-ARGOCD_ATTACH_YAML_FILE="$DESKTOP_DIR/argocd-attach-1.0.7.yaml"
+ARGOCD_YAML_FILE="$SCRIPT_DIR/argocd-service-1.1.0.yaml"
+VKS_YAML_FILE="$SCRIPT_DIR/vks-upgrade-3.5.1.yaml"
+ARGOCD_ATTACH_YAML_FILE="$SCRIPT_DIR/argo-attach.yaml"
 TOKEN_FILE="$DESKTOP_DIR/vcfa_api_token.txt"
 TFVARS_FILE="$REPO_DIR/argo-e2e/terraform.tfvars"
 
 
-# --- 2. Drop YAML Manifests on Desktop ---
-echo "Dropping YAML manifests to Desktop so you can start upgrades immediately..."
-
-echo "Generating ArgoCD Service YAML at $ARGOCD_YAML_FILE..."
-cat << 'EOF' > "$ARGOCD_YAML_FILE"
-apiVersion: data.packaging.carvel.dev/v1alpha1
-kind: Package
-metadata:
-  creationTimestamp: null
-  name: argocd-service.vsphere.vmware.com.1.1.0-25100889
-spec:
-  refName: argocd-service.vsphere.vmware.com
-  releasedAt: "2025-12-10T09:00:00Z"
-  template:
-    spec:
-      deploy:
-      - kapp: {}
-      fetch:
-      - imgpkgBundle:
-          image: projects.packages.broadcom.com/vsphere/supervisor/argocd-service/1.1.0/argocd-service:v1.1.0_vmware.1
-      template:
-      - ytt:
-          paths:
-          - config/sources
-          - config/overlays
-      - kbld:
-          paths:
-          - '-'
-          - .imgpkg/images.yml
-  valuesSchema:
-    openAPIv3:
-      additionalProperties: false
-      properties:
-        bundleUrl:
-          default: ""
-          description: package bundle URL for the argocd carvel package
-          type: string
-        capabilities:
-          default: []
-          description: Array of capabilities passed by supervisor service framework
-          items:
-            additionalProperties: false
-            properties:
-              name:
-                default: ""
-                type: string
-              value:
-                default: false
-                type: boolean
-            type: object
-          type: array
-        namespace:
-          default: argocd-service
-          description: argocd-service's namespace
-          type: string
-      type: object
-  version: 1.1.0-25100889
----
-apiVersion: data.packaging.carvel.dev/v1alpha1
-kind: PackageMetadata
-metadata:
-  creationTimestamp: null
-  name: argocd-service.vsphere.vmware.com
-spec:
-  displayName: ArgoCD Service
-  providerName: Broadcom
-  longDescription: This service allows users to self-service ArgoCD instance in different namespaces.
-  shortDescription: This service allows users to self-service ArgoCD instance in different namespaces.
-EOF
-
-echo "Generating VKS Upgrade YAML at $VKS_YAML_FILE..."
-cat << 'EOF' > "$VKS_YAML_FILE"
-apiVersion: data.packaging.carvel.dev/v1alpha1
-kind: Package
-metadata:
-  name: tkg.vsphere.vmware.com.3.5.1+v1.34
-  annotations:
-    appplatform.vmware.com/source-version-upgrade-constraints: '>=3.2.0'
-    appplatform.vmware.com/compatibility-check_service: upgrade-compatibility-service
-    appplatform.vmware.com/compatibility-check_port: "80"
-    appplatform.vmware.com/compatibility-check_protocol: https
-    appplatform.vmware.com/compatibility-check_url: ucs/v2/compatibility
-    appplatform.vmware.com/compatibility-check_method: POST
-    appplatform.vmware.com/compatibility-check_ca_secret: ucs-service-ca-cert
-    appplatform.vmware.com/required_capability.0: TKG_SupervisorService_Supported
-    appplatform.vmware.com/compatibility-check_data: |
-      [
-        {
-          "version": "v1",
-          "requires": {
-            "tanzu-kubernetes-release": [
-              {
-                "#data_object_or_protocol": "data object",
-                "predicate": {
-                  "operation": "not",
-                  "arguments": [
-                    {
-                      "operation": "isVersionSatisfied",
-                      "arguments": {
-                        "initiator": "vmware.com/gccontroller",
-                        "receiver": "ovf",
-                        "versions": [
-                          "v1.31.1+vmware.2-fips-vkr.2",
-                          "v1.30.8+vmware.1-fips-vkr.1"
-                        ]
-                      }
-                    }
-                  ]
-                }
-              }
-            ]
-          },
-          "offers": {
-            "VKS": {
-              "versions": {
-                "vmware.com/gcccontroller": [
-                  "3.5.1"
-                ]
-              }
-            },
-            "TKGSvS": {
-              "versions": {
-                "vmware.com/gccontroller": [
-                  "3.2.0",
-                  "3.3.0",
-                  "3.4.0",
-                  "3.2.31",
-                  "3.3.3",
-                  "3.5.0",
-                  "3.5.1"
-                ]
-              }
-            }
-          }
-        }
-      ]
-    supportbundler.vmware.com/manifest: tkgs-support-bundler-cm
-    appplatform.vmware.com/requires-ha-supervisor: "true"
-spec:
-  refName: tkg.vsphere.vmware.com
-  version: 3.5.1+v1.34
-  kubernetesVersionSelection:
-    constraints: '>=1.30.0'
-  template:
-    spec:
-      fetch:
-      - imgpkgBundle:
-          image: projects.packages.broadcom.com/vsphere/iaas/tkg-service/3.5.1/tkg-service:3.5.1
-      template:
-      - ytt:
-          paths:
-          - config/
-      - kbld:
-          paths:
-          - '-'
-          - .imgpkg/images.yml
-      deploy:
-      - kapp: {}
-  valuesSchema:
-    openAPIv3:
-      type: object
-      additionalProperties: false
-      properties:
-        cpVMSize:
-          type: string
-          description: cpVMSize indicates the capacity of the Supervisor Control Plane. It's derived from Supervisor's tshirt size.
-          default: LARGE
-        ssoDomain:
-          type: string
-          description: ssoDomain indicates the name of the default SSO domain configured in vCenter.
-          default: vsphere.local
-        networkProvider:
-          type: string
-          description: networkProvider indicates the Network Provider used on Supervisor. (e.g. NSX or vsphere-network)
-          default: NSX
-        tmcNamespace:
-          type: string
-          description: tmcNamespace indicates the namespace used for TMC to be deployed.
-          default: tmc-svc-namespace
-        namespacesCLIPluginVersion:
-          description: namespacesCLIPluginVersion indicates the Supervisor recommended namespaces CLIPlugin CR version.
-          type: string
-          default: v1.0.0
-        vcPublicKeys:
-          type: string
-          description: vcPublicKeys indicates the base64 encoded vCenter OIDC issuer, client audience and the public keys in JWKS format.
-          default: a2V5cw==
-          contentEncoding: base64
-        podVMSupported:
-          type: boolean
-          description: podVMSupported indicates if the Supervisor supports PodVMs.
-          default: false
-        stretchedSupervisor:
-          type: boolean
-          description: This field indicates whether the environment is a Stretched Supervisor
-          default: false
-        cloudVC:
-          type: boolean
-          description: cloudVC indicates if the vCenter is deployed on cloud.
-          default: false
-        controlPlaneCount:
-          type: integer
-          description: The value indicates the number of control planes enabled on the Supervisor.
-          default: 3
-        controlPlaneResources:
-          type: object
-          properties:
-            memoryMiB:
-              type: integer
-              default: 0
-              description: The value indicates the amount of memory available on the control plane VMs.
-            cpuCount:
-              type: integer
-              default: 0
-              description: The value indicates the number of CPUs available on the control plane VMs.
-        capabilities:
-          deprecated: true
-          type: array
-          items:
-            type: object
-            properties:
-              name:
-                type: string
-              value:
-                type: boolean
-            required:
-            - name
-            - value
-        capabilitiesStatus:
-          type: object
-          properties:
-            services:
-              additionalProperties:
-                additionalProperties:
-                  properties:
-                    activated:
-                      type: boolean
-                  required:
-                  - activated
-                  type: object
-                type: object
-              type: object
-            supervisor:
-              additionalProperties:
-                properties:
-                  activated:
-                    type: boolean
-                required:
-                - activated
-                type: object
-              type: object
----
-apiVersion: data.packaging.carvel.dev/v1alpha1
-kind: PackageMetadata
-metadata:
-  name: tkg.vsphere.vmware.com
-spec:
-  displayName: Kubernetes Service
-  longDescription: Kubernetes Service is a turnkey solution for deploying, running, and managing enterprise-grade Kubernetes clusters for hosting applications on Supervisor.
-  shortDescription: Cluster management
-  providerName: VMware
-  maintainers:
-  - name: ""
-  categories:
-  - cluster management
-EOF
-
-echo "Generating ArgoCD Attach YAML at $ARGOCD_ATTACH_YAML_FILE..."
-cat << 'EOF' > "$ARGOCD_ATTACH_YAML_FILE"
-apiVersion: data.packaging.carvel.dev/v1alpha1
-kind: PackageMetadata
-metadata:
-  creationTimestamp: null
-  name: argocd-attach.fling.vsphere.vmware.com
-spec:
-  displayName: argocd-attach
-  longDescription: argocd-attach.fling.vsphere.vmware.com
-  shortDescription: argocd-attach.fling.vsphere.vmware.com
-
----
-apiVersion: data.packaging.carvel.dev/v1alpha1
-kind: Package
-metadata:
-  creationTimestamp: null
-  name: argocd-attach.fling.vsphere.vmware.com.1.0.7
-spec:
-  refName: argocd-attach.fling.vsphere.vmware.com
-  releasedAt: "2025-06-12T17:07:57Z"
-  template:
-    spec:
-      deploy:
-      - kapp: {}
-      fetch:
-      - imgpkgBundle:
-          image: ghcr.io/warroyo/argocd-auto-attach@sha256:5c917e3dd6c57973f0a19e1662c7c7dc1ab85e3cc02eb0ba756a638bbc2cd34b
-      template:
-      - helmTemplate:
-          name: metacontroller
-          path: upstream
-      - ytt:
-          ignoreUnknownComments: true
-          paths:
-          - '-'
-      - kbld:
-          paths:
-          - '-'
-          - .imgpkg/images.yml
-  valuesSchema:
-    openAPIv3:
-      properties:
-        affinity:
-          default: {}
-          type: object
-        argo_namespace:
-          default: ""
-          type: string
-        clusterRole:
-          properties:
-            aggregationRule:
-              default: {}
-              type: object
-            rules:
-              default: []
-              items:
-                properties:
-                  apiGroups:
-                    default: []
-                    items:
-                      default: '*'
-                      type: string
-                    type: array
-                  resources:
-                    default: []
-                    items:
-                      default: '*'
-                      type: string
-                    type: array
-                  verbs:
-                    default: []
-                    items:
-                      default: '*'
-                      type: string
-                    type: array
-                type: object
-              type: array
-          type: object
-        command:
-          default: /usr/bin/metacontroller
-          description: Command which is used to start metacontroller
-          type: string
-        commandArgs:
-          default: []
-          description: Command arguments which are used to start metacontroller
-          items:
-            default: --zap-log-level=4
-            type: string
-          type: array
-        fullnameOverride:
-          default: ""
-          type: string
-        image:
-          properties:
-            pullPolicy:
-              default: IfNotPresent
-              type: string
-            repository:
-              default: ghcr.io/metacontroller/metacontroller
-              type: string
-            tag:
-              default: ""
-              type: string
-          type: object
-        imagePullSecrets:
-          default: []
-          items: {}
-          type: array
-        nameOverride:
-          default: ""
-          type: string
-        namespace:
-          default: ""
-          type: string
-        namespaceOverride:
-          default: metacontroller
-          type: string
-        nodeSelector:
-          default: {}
-          type: object
-        podAnnotations:
-          default: {}
-          type: object
-        podDisruptionBudget:
-          default: {}
-          description: which can be enabled when running more than one replica
-          type: object
-        podSecurityContext:
-          default: {}
-          type: object
-        priorityClassName:
-          default: ""
-          description: The name of the PriorityClass that will be assigned to metacontroller
-          type: string
-        probes:
-          properties:
-            port:
-              default: 8081
-              type: integer
-          type: object
-        python_image:
-          default: harbor.vcf.lab/niran/python:3.3
-          type: string
-        rbac:
-          properties:
-            create:
-              default: true
-              type: boolean
-          type: object
-        replicas:
-          default: 1
-          type: integer
-        resources:
-          default: {}
-          type: object
-        securityContext:
-          default: {}
-          type: object
-        service:
-          properties:
-            enabled:
-              default: false
-              type: boolean
-            ports:
-              default: []
-              items: {}
-              type: array
-          type: object
-        serviceAccount:
-          properties:
-            annotations:
-              default: {}
-              type: object
-            create:
-              default: true
-              type: boolean
-            name:
-              default: ""
-              description: The name of the service account to use. If not set and
-                create is true, a name is generated using the fullname template
-              type: string
-          type: object
-        tolerations:
-          default: []
-          items: {}
-          type: array
-      type: object
-  version: 1.0.7
-EOF
-
-echo "✅ YAML manifests saved to Desktop."
-echo ""
+# --- 2. Install Supervisor Services ---
 
 
 # --- 3. Install CLIs & Prerequisites ---
@@ -545,6 +87,29 @@ for pkg in apt-transport-https ca-certificates; do
         echo "$LAB_PASS" | sudo -S apt-get install -y $pkg
     fi
 done
+
+if ! python3 -c "import requests" 2>/dev/null; then
+    echo "Installing python3-requests..."
+    echo "$LAB_PASS" | sudo -S apt-get install -y python3-requests 2>/dev/null || \
+        python3 -m pip install --break-system-packages requests 2>/dev/null || true
+fi
+
+if ! command -v pwsh &> /dev/null; then
+    echo "Installing PowerShell..."
+    curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | \
+        sudo gpg --dearmor -o /usr/share/keyrings/microsoft.gpg
+    echo "deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft.gpg] \
+https://packages.microsoft.com/ubuntu/$(lsb_release -rs)/prod $(lsb_release -cs) main" | \
+        sudo tee /etc/apt/sources.list.d/microsoft-prod.list
+    echo "$LAB_PASS" | sudo -S apt-get update -y
+    echo "$LAB_PASS" | sudo -S apt-get install -y powershell
+fi
+
+if ! pwsh -NonInteractive -Command "Get-Module -ListAvailable VMware.PowerCLI" 2>/dev/null | grep -q VMware; then
+    echo "Installing VMware PowerCLI..."
+    pwsh -NonInteractive -Command \
+        "Install-Module VMware.PowerCLI -Scope CurrentUser -Force -SkipPublisherCheck -AllowClobber"
+fi
 
 if ! command -v kubectl &> /dev/null; then
     echo "Installing kubectl..."
@@ -702,37 +267,46 @@ if [ -f "$TOKEN_FILE" ] && [ -f "$TFVARS_FILE" ]; then
     echo "✅ Previous prep detected — token and terraform.tfvars already exist. Skipping manual steps..."
     VCFA_TOKEN=$(cat "$TOKEN_FILE")
 else
-    echo ""
-    echo "╔═══════════════════════════════════════════════════════════════════════╗"
-    echo "║              ⚠️  MANUAL ACTIONS REQUIRED BEFORE CONTINUING           ║"
-    echo "╚═══════════════════════════════════════════════════════════════════════╝"
-    echo ""
-    echo "  All YAML manifests have been saved to your Desktop."
-    echo "  Open vCenter → Workload Management → Supervisor Services"
-    echo "  and perform the following actions:"
-    echo ""
-    echo "  ┌─────────────────────────────────────────────────────────────────┐"
-    echo "  │  1. 📦 UPGRADE the VKS (Kubernetes) Service to v3.5           │"
-    echo "  │     Use: $VKS_YAML_FILE"
-    echo "  │                                                                 │"
-    echo "  │  2. 📦 DEPLOY the ArgoCD Service                               │"
-    echo "  │     Use: $ARGOCD_YAML_FILE"
-    echo "  │                                                                 │"
-    echo "  │  3. 📦 DEPLOY the ArgoCD Attach Fling                          │"
-    echo "  │     Use: $ARGOCD_ATTACH_YAML_FILE"
-    echo "  │                                                                 │"
-    echo "  │  4. 🔑 GET your VCFA API Token                                 │"
-    echo "  │     Go to: https://auto-a.site-a.vcf.lab                       │"
-    echo "  │     Login with credentials from ~/Desktop/password.txt          │"
-    echo "  │     Navigate to your user settings and generate a refresh token │"
-    echo "  └─────────────────────────────────────────────────────────────────┘"
-    echo ""
-    echo "  Complete ALL steps above, then paste your token below to continue."
-    echo ""
-    read -s -p "  🔑 Paste your VCFA API Token here and hit Enter (input hidden): " VCFA_TOKEN
-    echo ""
-    echo ""
-    echo "  Token captured! Saving to Desktop..."
+    echo "Installing supervisor services via PowerCLI..."
+    _VC="vc-wld01-a.site-a.vcf.lab"
+    _VCUSER="administrator@wld.sso"
+
+    declare -A _SERVICES=(
+        ["tkg.vsphere.vmware.com"]="$VKS_YAML_FILE"
+        ["argocd-service.vsphere.vmware.com"]="$ARGOCD_YAML_FILE"
+        ["argocd-attach.fling.vsphere.vmware.com"]="$ARGOCD_ATTACH_YAML_FILE"
+    )
+
+    for _SVC in "${!_SERVICES[@]}"; do
+        pwsh -NonInteractive -File "$SCRIPT_DIR/install-supervisor-services.ps1" \
+            -VCenterServer "$_VC" \
+            -Username "$_VCUSER" \
+            -Password "$LAB_PASS" \
+            -YamlPath "${_SERVICES[$_SVC]}" \
+            -ServiceName "$_SVC"
+    done
+
+    # --- Auto-generate VCFA API token ---
+    echo "Generating VCFA API token automatically..."
+
+    set +e
+    VCFA_TOKEN=$(python3 "$SCRIPT_DIR/vcfa-token.py" "broadcomadmin" "$LAB_PASS" 2>/tmp/vcfa_token_err.txt)
+    _TOKEN_EXIT=$?
+    set -e
+
+    if [ $_TOKEN_EXIT -ne 0 ] || [ -z "$VCFA_TOKEN" ]; then
+        echo "⚠️ Automated token generation failed:"
+        cat /tmp/vcfa_token_err.txt 2>/dev/null || true
+        rm -f /tmp/vcfa_token_err.txt
+        echo "   Falling back to manual entry..."
+        read -s -p "  🔑 Paste your VCFA API Token here and hit Enter (input hidden): " VCFA_TOKEN
+        echo ""
+    else
+        echo "✅ VCFA API token generated automatically."
+        rm -f /tmp/vcfa_token_err.txt
+    fi
+
+    echo "  Token saved to Desktop..."
     echo "$VCFA_TOKEN" > "$TOKEN_FILE"
 
     cd "$REPO_DIR/argo-e2e"
