@@ -4,59 +4,55 @@ param(
     [Parameter(Mandatory)] [string]$Password,
     [Parameter(Mandatory)] [string]$YamlPath,
     [Parameter(Mandatory)] [string]$ServiceName,
-    [Parameter(Mandatory)] [string]$ClusterId
+    [Parameter(Mandatory)] [string]$ClusterName
 )
 
 Set-PowerCLIConfiguration -InvalidCertificateAction Ignore -Confirm:$false | Out-Null
 Connect-VIServer -Server $VCenterServer -User $Username -Password $Password | Out-Null
 
-$yaml = Get-Content -Path $YamlPath -Raw
+$yaml     = Get-Content -Path $YamlPath -Raw
+$matches  = [regex]::Matches($yaml, '(?m)^\s{2}version:\s*(.+)$')
+$version  = $matches[$matches.Count - 1].Groups[1].Value.Trim()
+$clusterId = (Get-Cluster -Name $ClusterName).ExtensionData.MoRef.Value
 
-# Extract version from the Package spec (last "  version:" in the file)
-$versionMatches = [regex]::Matches($yaml, '(?m)^\s{2}version:\s*(.+)$')
-$version = $versionMatches[$versionMatches.Count - 1].Groups[1].Value.Trim()
-Write-Host "[$ServiceName] Version: $version"
+Write-Host "[$ServiceName] version=$version  cluster=$clusterId"
 
-# --- Register / update global service catalog ---
+# --- Register or add version in global catalog ---
 $existing = $null
-try {
-    $existing = Invoke-GetSupervisorServiceNamespaceManagement -SupervisorService $ServiceName
-} catch {}
+try { $existing = Invoke-GetSupervisorServiceNamespaceManagement -SupervisorService $ServiceName } catch {}
 
 if ($null -eq $existing) {
     Write-Host "[$ServiceName] Not found — registering..."
-    $carvelSpec = Initialize-NamespaceManagementSupervisorServicesCarvelCreateSpec -Content $yaml
-    $createSpec = Initialize-NamespaceManagementSupervisorServicesCreateSpec -CarvelCreateSpec $carvelSpec
-    Invoke-CreateNamespaceManagementSupervisorServices -RequestBody $createSpec | Out-Null
+    $carvelVersionSpec = Initialize-NamespaceManagementSupervisorServicesVersionsCarvelCreateSpec -Content $yaml
+    $carvelSpec        = Initialize-NamespaceManagementSupervisorServicesCarvelCreateSpec         -VersionSpec $carvelVersionSpec
+    $createSpec        = Initialize-NamespaceManagementSupervisorServicesCreateSpec               -CarvelSpec  $carvelSpec
+    Invoke-CreateNamespaceManagementSupervisorServices `
+        -NamespaceManagementSupervisorServicesCreateSpec $createSpec | Out-Null
 } else {
     Write-Host "[$ServiceName] Already registered — adding new version..."
     $carvelVersionSpec = Initialize-NamespaceManagementSupervisorServicesVersionsCarvelCreateSpec -Content $yaml
-    $versionSpec       = Initialize-NamespaceManagementSupervisorServicesVersionsCreateSpec -CarvelCreateSpec $carvelVersionSpec
+    $versionSpec       = Initialize-NamespaceManagementSupervisorServicesVersionsCreateSpec       -CarvelSpec $carvelVersionSpec
     Invoke-CreateSupervisorServiceNamespaceManagementVersions `
-        -SupervisorService $ServiceName -RequestBody $versionSpec | Out-Null
+        -SupervisorService $ServiceName `
+        -NamespaceManagementSupervisorServicesVersionsCreateSpec $versionSpec | Out-Null
 }
 
-# --- Install / update on cluster ---
-$clusterInstalled = $null
-try {
-    $clusterInstalled = Invoke-GetClusterSupervisorServiceNamespaceManagement `
-        -Cluster $ClusterId -SupervisorService $ServiceName
-} catch {}
+# --- Install or update on cluster ---
+$onCluster = $null
+try { $onCluster = Invoke-GetClusterSupervisorServiceNamespaceManagement -Cluster $clusterId -SupervisorService $ServiceName } catch {}
 
-if ($null -eq $clusterInstalled) {
-    Write-Host "[$ServiceName] Installing on cluster $ClusterId..."
+if ($null -eq $onCluster) {
+    Write-Host "[$ServiceName] Installing on cluster..."
     $installSpec = Initialize-NamespaceManagementSupervisorServicesClusterSupervisorServicesCreateSpec `
-        -SupervisorService $ServiceName `
-        -Version          $version
-    Invoke-CreateClusterSupervisorServiceNamespaceManagement `
-        -Cluster $ClusterId `
+        -SupervisorService $ServiceName -Version $version
+    Invoke-CreateClusterNamespaceManagementSupervisorServices `
+        -Cluster $clusterId `
         -NamespaceManagementSupervisorServicesClusterSupervisorServicesCreateSpec $installSpec | Out-Null
 } else {
-    Write-Host "[$ServiceName] Already installed on cluster — updating to $version..."
-    $setSpec = Initialize-NamespaceManagementSupervisorServicesClusterSupervisorServicesSetSpec `
-        -Version $version
+    Write-Host "[$ServiceName] Already on cluster — updating to $version..."
+    $setSpec = Initialize-NamespaceManagementSupervisorServicesClusterSupervisorServicesSetSpec -Version $version
     Invoke-SetClusterSupervisorServiceNamespaceManagement `
-        -Cluster $ClusterId `
+        -Cluster $clusterId `
         -SupervisorService $ServiceName `
         -NamespaceManagementSupervisorServicesClusterSupervisorServicesSetSpec $setSpec | Out-Null
 }

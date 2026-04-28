@@ -55,7 +55,7 @@ export PATH="$BIN_DIR:$PATH"
 ARGOCD_YAML_FILE="$SCRIPT_DIR/argocd-service-1.1.0.yaml"
 VKS_YAML_FILE="$SCRIPT_DIR/vks-upgrade-3.5.1.yaml"
 ARGOCD_ATTACH_YAML_FILE="$SCRIPT_DIR/argo-attach.yaml"
-VCENTER_CLUSTER_ID="domain-c8"
+VCENTER_CLUSTER_NAME="cluster-wld01-01a"
 TOKEN_FILE="$DESKTOP_DIR/vcfa_api_token.txt"
 TFVARS_FILE="$REPO_DIR/argo-e2e/terraform.tfvars"
 
@@ -316,7 +316,7 @@ else
             -Password "$LAB_PASS" \
             -YamlPath "${_SERVICES[$_SVC]}" \
             -ServiceName "$_SVC" \
-            -ClusterId "$VCENTER_CLUSTER_ID"
+            -ClusterName "$VCENTER_CLUSTER_NAME"
     done
 
     # --- Auto-generate VCFA API token ---
