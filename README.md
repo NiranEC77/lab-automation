@@ -108,8 +108,14 @@ For the VKS cluster context, the script:
 | `setup-lab.sh` | Main automation script (prep/deploy modes) |
 | `install-supervisor-services.ps1` | PowerCLI script — generic supervisor service install/upgrade |
 | `vcfa-token.py` | Automated VCFA OAuth token generation |
-| `argocd-service-1.1.0.yaml` | ArgoCD Supervisor Service package YAML |
-| `vks-upgrade-3.5.1.yaml` | VKS 3.5.1 upgrade package YAML |
-| `argo-attach.yaml` | ArgoCD Attach Fling package YAML |
-| `test-cluster-ctx.sh` | Standalone test script for VKS cluster context setup |
 | `README.md` | This file |
+
+### `supervisor-services/`
+
+| File | Description |
+|------|-------------|
+| `vks-upgrade.yaml` | VKS upgrade package YAML |
+| `argocd-service.yaml` | ArgoCD Supervisor Service package YAML |
+| `argo-attach.yaml` | ArgoCD Attach Fling package YAML |
+| `secret-store-service.yaml` | Secret Store Service package YAML |
+| `secret-store-service-config.yaml` | Secret Store Service install config (storage class) |

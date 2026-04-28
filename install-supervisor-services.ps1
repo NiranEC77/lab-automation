@@ -4,7 +4,8 @@ param(
     [Parameter(Mandatory)] [string]$Password,
     [Parameter(Mandatory)] [string]$YamlPath,
     [Parameter(Mandatory)] [string]$ServiceName,
-    [Parameter(Mandatory)] [string]$ClusterName
+    [Parameter(Mandatory)] [string]$ClusterName,
+    [string]$ConfigYamlPath = ""
 )
 
 Set-PowerCLIConfiguration -InvalidCertificateAction Ignore -Confirm:$false | Out-Null
@@ -44,8 +45,14 @@ try { $onCluster = Invoke-GetClusterSupervisorServiceNamespaceManagement -Cluste
 
 if ($null -eq $onCluster) {
     Write-Host "[$ServiceName] Installing on cluster..."
-    $installSpec = Initialize-NamespaceManagementSupervisorServicesClusterSupervisorServicesCreateSpec `
-        -SupervisorService $ServiceName -Version $version
+    $installParams = @{ SupervisorService = $ServiceName; Version = $version }
+    if ($ConfigYamlPath -ne "" -and (Test-Path $ConfigYamlPath)) {
+        $configB64 = [Convert]::ToBase64String(
+            [System.Text.Encoding]::UTF8.GetBytes((Get-Content -Path $ConfigYamlPath -Raw))
+        )
+        $installParams["YamlServiceConfig"] = $configB64
+    }
+    $installSpec = Initialize-NamespaceManagementSupervisorServicesClusterSupervisorServicesCreateSpec @installParams
     Invoke-CreateClusterNamespaceManagementSupervisorServices `
         -Cluster $clusterId `
         -NamespaceManagementSupervisorServicesClusterSupervisorServicesCreateSpec $installSpec | Out-Null

@@ -52,9 +52,7 @@ mkdir -p "$DESKTOP_DIR"
 
 export PATH="$BIN_DIR:$PATH"
 
-ARGOCD_YAML_FILE="$SCRIPT_DIR/argocd-service-1.1.0.yaml"
-VKS_YAML_FILE="$SCRIPT_DIR/vks-upgrade-3.6.2.yaml"
-ARGOCD_ATTACH_YAML_FILE="$SCRIPT_DIR/argo-attach.yaml"
+SVC_DIR="$SCRIPT_DIR/supervisor-services"
 VCENTER_CLUSTER_NAME="cluster-wld01-01a"
 TOKEN_FILE="$DESKTOP_DIR/vcfa_api_token.txt"
 TFVARS_FILE="$REPO_DIR/argo-e2e/terraform.tfvars"
@@ -304,19 +302,28 @@ else
     _VCUSER="administrator@wld.sso"
 
     declare -A _SERVICES=(
-        ["tkg.vsphere.vmware.com"]="$VKS_YAML_FILE"
-        ["argocd-service.vsphere.vmware.com"]="$ARGOCD_YAML_FILE"
-        ["argocd-attach.fling.vsphere.vmware.com"]="$ARGOCD_ATTACH_YAML_FILE"
+        ["tkg.vsphere.vmware.com"]="$SVC_DIR/vks-upgrade.yaml"
+        ["argocd-service.vsphere.vmware.com"]="$SVC_DIR/argocd-service.yaml"
+        ["argocd-attach.fling.vsphere.vmware.com"]="$SVC_DIR/argo-attach.yaml"
+        ["secret-store.vsphere.vmware.com"]="$SVC_DIR/secret-store-service.yaml"
+    )
+    declare -A _SERVICE_CONFIGS=(
+        ["secret-store.vsphere.vmware.com"]="$SVC_DIR/secret-store-service-config.yaml"
     )
 
     for _SVC in "${!_SERVICES[@]}"; do
-        pwsh -NonInteractive -File "$SCRIPT_DIR/install-supervisor-services.ps1" \
-            -VCenterServer "$_VC" \
-            -Username "$_VCUSER" \
-            -Password "$LAB_PASS" \
-            -YamlPath "${_SERVICES[$_SVC]}" \
-            -ServiceName "$_SVC" \
+        _ARGS=(
+            -VCenterServer "$_VC"
+            -Username "$_VCUSER"
+            -Password "$LAB_PASS"
+            -YamlPath "${_SERVICES[$_SVC]}"
+            -ServiceName "$_SVC"
             -ClusterName "$VCENTER_CLUSTER_NAME"
+        )
+        if [[ -n "${_SERVICE_CONFIGS[$_SVC]+x}" ]]; then
+            _ARGS+=(-ConfigYamlPath "${_SERVICE_CONFIGS[$_SVC]}")
+        fi
+        pwsh -NonInteractive -File "$SCRIPT_DIR/install-supervisor-services.ps1" "${_ARGS[@]}"
     done
 
     # --- Auto-generate VCFA API token ---
