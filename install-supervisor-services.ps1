@@ -11,6 +11,7 @@ Set-PowerCLIConfiguration -InvalidCertificateAction Ignore -Confirm:$false | Out
 Connect-VIServer -Server $VCenterServer -User $Username -Password $Password | Out-Null
 
 $yaml     = Get-Content -Path $YamlPath -Raw
+$yamlB64  = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($yaml))
 $matches  = [regex]::Matches($yaml, '(?m)^\s{2}version:\s*(.+)$')
 $version  = $matches[$matches.Count - 1].Groups[1].Value.Trim()
 $clusterId = (Get-Cluster -Name $ClusterName).ExtensionData.MoRef.Value
@@ -23,14 +24,14 @@ try { $existing = Invoke-GetSupervisorServiceNamespaceManagement -SupervisorServ
 
 if ($null -eq $existing) {
     Write-Host "[$ServiceName] Not found — registering..."
-    $carvelVersionSpec = Initialize-NamespaceManagementSupervisorServicesVersionsCarvelCreateSpec -Content $yaml
+    $carvelVersionSpec = Initialize-NamespaceManagementSupervisorServicesVersionsCarvelCreateSpec -Content $yamlB64
     $carvelSpec        = Initialize-NamespaceManagementSupervisorServicesCarvelCreateSpec         -VersionSpec $carvelVersionSpec
     $createSpec        = Initialize-NamespaceManagementSupervisorServicesCreateSpec               -CarvelSpec  $carvelSpec
     Invoke-CreateNamespaceManagementSupervisorServices `
         -NamespaceManagementSupervisorServicesCreateSpec $createSpec | Out-Null
 } else {
     Write-Host "[$ServiceName] Already registered — adding new version..."
-    $carvelVersionSpec = Initialize-NamespaceManagementSupervisorServicesVersionsCarvelCreateSpec -Content $yaml
+    $carvelVersionSpec = Initialize-NamespaceManagementSupervisorServicesVersionsCarvelCreateSpec -Content $yamlB64
     $versionSpec       = Initialize-NamespaceManagementSupervisorServicesVersionsCreateSpec       -CarvelSpec $carvelVersionSpec
     Invoke-CreateSupervisorServiceNamespaceManagementVersions `
         -SupervisorService $ServiceName `
