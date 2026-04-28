@@ -31,12 +31,19 @@ if ($null -eq $existing) {
     Invoke-CreateNamespaceManagementSupervisorServices `
         -NamespaceManagementSupervisorServicesCreateSpec $createSpec | Out-Null
 } else {
-    Write-Host "[$ServiceName] Already registered — adding new version..."
-    $carvelVersionSpec = Initialize-NamespaceManagementSupervisorServicesVersionsCarvelCreateSpec -Content $yamlB64
-    $versionSpec       = Initialize-NamespaceManagementSupervisorServicesVersionsCreateSpec       -CarvelSpec $carvelVersionSpec
-    Invoke-CreateSupervisorServiceNamespaceManagementVersions `
-        -SupervisorService $ServiceName `
-        -NamespaceManagementSupervisorServicesVersionsCreateSpec $versionSpec | Out-Null
+    $existingVersion = $null
+    try { $existingVersion = Invoke-GetSupervisorServiceVersionNamespaceManagement -SupervisorService $ServiceName -Version $version } catch {}
+
+    if ($null -eq $existingVersion) {
+        Write-Host "[$ServiceName] Already registered — adding new version $version..."
+        $carvelVersionSpec = Initialize-NamespaceManagementSupervisorServicesVersionsCarvelCreateSpec -Content $yamlB64
+        $versionSpec       = Initialize-NamespaceManagementSupervisorServicesVersionsCreateSpec       -CarvelSpec $carvelVersionSpec
+        Invoke-CreateSupervisorServiceNamespaceManagementVersions `
+            -SupervisorService $ServiceName `
+            -NamespaceManagementSupervisorServicesVersionsCreateSpec $versionSpec | Out-Null
+    } else {
+        Write-Host "[$ServiceName] Version $version already exists — skipping."
+    }
 }
 
 # --- Install or update on cluster ---
