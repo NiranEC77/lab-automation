@@ -364,7 +364,7 @@ vcfa_org            = "all-apps"
 vcfa_url            = "https://auto-a.site-a.vcf.lab"
 namespace           = "e2e-ns"
 cluster             = "$CLUSTER_NAME"
-bootstrap_revision  = "1.0.1"
+bootstrap_revision  = "2.0.0"
 k8s_version         = "v1.34.1+vmware.1"
 vcfa_refresh_token  = "$VCFA_TOKEN"
 EOF
