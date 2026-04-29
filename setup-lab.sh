@@ -36,7 +36,7 @@ echo ""
 ###############################################################################
 
 # --- 1. Variables & Folder Structure ---
-LAB_PASS="VMware123!VMware123!"
+LAB_PASS='VMware123!VMware123!'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "Verifying folder structure..."
@@ -234,16 +234,14 @@ EOF
 
 # --- 8. VCF CLI Setup ---
 echo "Pre-configuring VCF CLI (EULA, CEIP, and plugins)..."
-export TANZU_CLI_EULA_PROMPT_ANSWER=Yes
-export TANZU_CLI_CEIP_OPT_IN_PROMPT_ANSWER=Yes
+export VCF_CLI_VSPHERE_PASSWORD=$LAB_PASS
 vcf plugin sync 2>/dev/null || true
 vcf telemetry update --opted-out 2>/dev/null || true
 
 echo "Creating VCF Supervisor Context..."
 vcf context create supervisor-ctx \
-  --endpoint 10.1.0.2 \
+  --endpoint 10.1.0.6 \
   --username administrator@wld.sso \
-  --password "$LAB_PASS" \
   --insecure-skip-tls-verify \
   -t kubernetes \
   --auth-type basic 2>/dev/null || echo "Context may already exist. Continuing..."
