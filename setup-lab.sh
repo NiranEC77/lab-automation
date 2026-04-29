@@ -30,6 +30,23 @@ esac
 echo "Running in ${MODE^^} mode..."
 echo ""
 
+echo "Which lab environment?"
+echo ""
+echo "  1) vks   → VKS Lab       (org: Broadcom,  user: broadcomadmin)"
+echo "  2) adv   → Advanced Lab  (org: all-apps,  user: all-apps-admin)"
+echo ""
+read -p "Enter your choice [vks/adv]: " LAB_ENV
+echo ""
+
+case "$LAB_ENV" in
+    1|vks|v)   LAB_ENV="vks" ;;
+    2|adv|a)   LAB_ENV="adv" ;;
+    *) echo "❌ Invalid choice. Please run again and choose 'vks' or 'adv'."; exit 1 ;;
+esac
+
+echo "Running for ${LAB_ENV^^} environment..."
+echo ""
+
 
 ###############################################################################
 #                         PREP (runs for both modes)                          #
@@ -37,6 +54,15 @@ echo ""
 
 # --- 1. Variables & Folder Structure ---
 LAB_PASS='VMware123!VMware123!'
+
+if [[ "$LAB_ENV" == "vks" ]]; then
+    VCFA_ORG="Broadcom"
+    VCFA_USER="broadcomadmin"
+else
+    VCFA_ORG="all-apps"
+    VCFA_USER="all-apps-admin"
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "Verifying folder structure..."
@@ -73,6 +99,12 @@ if [ -f /etc/apt/sources.list.d/ubuntu.sources ] && \
         /etc/apt/sources.list.d/ubuntu.sources
 fi
 
+if ! command -v curl &>/dev/null; then
+    echo "Bootstrapping curl..."
+    echo "$LAB_PASS" | sudo -S apt-get install -y curl libcurl4t64 2>/dev/null || \
+        echo "$LAB_PASS" | sudo -S apt-get install -y curl
+fi
+
 echo "$LAB_PASS" | sudo -S apt-get update -y
 echo "$LAB_PASS" | sudo -S apt-get --fix-broken install -y
 
@@ -80,11 +112,7 @@ TOOLS="curl unzip git jq gpg zsh expect kubectx kubens kubecolor vim fzf"
 for tool in $TOOLS; do
     if ! command -v $tool &> /dev/null; then
         echo "Installing $tool..."
-        if [ "$tool" = "curl" ]; then
-            echo "$LAB_PASS" | sudo -S apt-get install -y curl libcurl4t64 || echo "$LAB_PASS" | sudo -S apt-get install -y curl
-        else
-            echo "$LAB_PASS" | sudo -S apt-get install -y $tool
-        fi
+        echo "$LAB_PASS" | sudo -S apt-get install -y $tool
     else
         echo "$tool is already installed. Skipping."
     fi
@@ -227,7 +255,7 @@ find "$REPO_DIR/modules/vks-cluster" -type f -exec sed -i 's/vsan-default-storag
 # --- 7. Save Credentials to Desktop ---
 echo "Saving credentials to Desktop..."
 cat << EOF > "$DESKTOP_DIR/password.txt"
-Lab Username: all-apps-admin
+Lab Username: $VCFA_USER
 Lab Password: $LAB_PASS
 EOF
 
@@ -328,7 +356,7 @@ else
     echo "Generating VCFA API token automatically..."
 
     set +e
-    VCFA_TOKEN=$(python3 "$SCRIPT_DIR/vcfa-token.py" "broadcomadmin" "$LAB_PASS" 2>/tmp/vcfa_token_err.txt)
+    VCFA_TOKEN=$(python3 "$SCRIPT_DIR/vcfa-token.py" "$VCFA_USER" "$LAB_PASS" "$VCFA_ORG" 2>/tmp/vcfa_token_err.txt)
     _TOKEN_EXIT=$?
     set -e
 
@@ -358,7 +386,7 @@ supervisor_cluster  = "domain-c8"
 region_name         = "us-west-region"
 vpc_name            = "us-west-region-default-vpc"
 zone_name           = "z-wld-a"
-vcfa_org            = "all-apps"
+vcfa_org            = "$VCFA_ORG"
 vcfa_url            = "https://auto-a.site-a.vcf.lab"
 namespace           = "e2e-ns"
 cluster             = "$CLUSTER_NAME"
@@ -373,7 +401,7 @@ echo "Creating VCFA CLI context..."
 vcf context create vcfa \
   --endpoint auto-a.site-a.vcf.lab \
   --api-token "$VCFA_TOKEN" \
-  --tenant-name all-apps \
+  --tenant-name "$VCFA_ORG" \
   --ca-certificate "$VCFA_CERT_PATH" 2>/dev/null || echo "VCFA context may already exist. Continuing..."
 
 cd "$REPO_DIR/argo-e2e"

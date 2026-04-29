@@ -3,14 +3,13 @@ import requests, urllib3, sys
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 FQDN = "auto-a.site-a.vcf.lab"
-TENANT = "Broadcom"
 BASE = f"https://{FQDN}"
 
-if len(sys.argv) != 3:
-    print("Usage: token.py <username> <password>", file=sys.stderr)
+if len(sys.argv) != 4:
+    print("Usage: vcfa-token.py <username> <password> <org>", file=sys.stderr)
     sys.exit(1)
 
-USER, PASS = sys.argv[1], sys.argv[2]
+USER, PASS, TENANT = sys.argv[1], sys.argv[2], sys.argv[3]
 
 s = requests.Session()
 s.verify = False

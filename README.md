@@ -7,12 +7,19 @@ Welcome to the Field Lab automation project! This repository contains a fully au
 To get started, simply open your terminal and paste the following command. This is all you need to do to kick off the entire deployment:
 
 ```bash
-echo 'VMware123!VMware123!' | sudo -S apt update -y && sudo apt install -y git && cd ~/Downloads && git clone https://github.com/NiranEC77/lab-automation && cd lab-automation && chmod +x setup-lab.sh && ./setup-lab.sh
+echo 'VMware123!VMware123!' | sudo -S sed -i '0,/multiverse/s/multiverse/multiverse\ main\ restricted\ universe/' /etc/apt/sources.list.d/ubuntu.sources && sudo apt update -y && sudo apt install -y git && cd ~/Downloads && git clone https://github.com/NiranEC77/lab-automation && cd lab-automation && chmod +x setup-lab.sh && ./setup-lab.sh
 ```
 
 ## 🎛️ Modes of Operation
 
-The script starts by asking you to choose a mode. After that, everything is automated.
+The script starts by asking you two questions — which mode and which lab environment. After that, everything is automated.
+
+### Lab Environments
+
+| Choice | Org / Tenant | VCFA User |
+|--------|-------------|-----------|
+| `vks` | Broadcom | broadcomadmin |
+| `adv` | all-apps | all-apps-admin |
 
 ### `prep` — Install & Configure (stops before Terraform deploy)
 
@@ -50,10 +57,11 @@ Choose this for the complete flow. Deploy runs **all prep steps first** (skippin
 * **PowerShell & PowerCLI:** Installs PowerShell Core and VMware PowerCLI for supervisor service automation.
 
 ### 2. Supervisor Service Installation
-* Upgrades VKS (Kubernetes Service) to v3.5.1.
+* Upgrades VKS (Kubernetes Service).
 * Deploys the ArgoCD Supervisor Service.
 * Deploys the ArgoCD Attach Fling.
-* Uses a generic PowerCLI script that handles both new service registration and version upgrades automatically. YAML manifests are committed to the repo as `vks-upgrade-3.5.1.yaml`, `argocd-service-1.1.0.yaml`, and `argo-attach.yaml`.
+* Deploys the Secret Store Service (with storage class config).
+* Uses a generic PowerCLI script that handles new registration, version deduplication, and cluster install/upgrade automatically. YAML manifests live in `supervisor-services/`.
 
 ### 3. Pimp the Terminal
 * **Zsh Integration:** Installs `zsh` and sets it as your default shell.
