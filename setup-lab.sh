@@ -58,9 +58,11 @@ LAB_PASS='VMware123!VMware123!'
 if [[ "$LAB_ENV" == "vks" ]]; then
     VCFA_ORG="Broadcom"
     VCFA_USER="broadcomadmin"
+    SUPERVISOR_ENDPOINT="10.1.0.6"
 else
     VCFA_ORG="all-apps"
     VCFA_USER="all-apps-admin"
+    SUPERVISOR_ENDPOINT="10.1.0.2"
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -261,7 +263,7 @@ vcf telemetry update --opted-out 2>/dev/null || true
 
 echo "Creating VCF Supervisor Context..."
 vcf context create supervisor-ctx \
-  --endpoint 10.1.0.6 \
+  --endpoint "$SUPERVISOR_ENDPOINT" \
   --username administrator@wld.sso \
   --insecure-skip-tls-verify \
   -t kubernetes \
@@ -372,10 +374,6 @@ else
 
     echo "Injecting static and dynamic variables..."
     cat << EOF > terraform.tfvars
-vcenter_server      = "vc-wld01-a.site-a.vcf.lab"
-vcenter_user        = "administrator@wld.sso"
-vcenter_password    = "VMware123!VMware123!"
-supervisor_cluster  = "domain-c8"
 region_name         = "us-west-region"
 vpc_name            = "us-west-region-default-vpc"
 zone_name           = "z-wld-a"
@@ -386,16 +384,10 @@ cluster             = "$CLUSTER_NAME"
 bootstrap_revision  = "2.0.0"
 k8s_version         = "v1.34.1+vmware.1"
 vcfa_refresh_token  = "$VCFA_TOKEN"
+cluster_class       = "builtin-generic-v3.6.0"
 EOF
 fi
 
-# Create the VCFA Context (needs token, done after capture)
-echo "Creating VCFA CLI context..."
-vcf context create vcfa \
-  --endpoint auto-a.site-a.vcf.lab \
-  --api-token "$VCFA_TOKEN" \
-  --tenant-name "$VCFA_ORG" \
-  --ca-certificate "$VCFA_CERT_PATH" 2>/dev/null || echo "VCFA context may already exist. Continuing..."
 
 cd "$REPO_DIR/argo-e2e"
 
@@ -448,6 +440,15 @@ if [ ! -z "$NS_NAME" ]; then
       -d '{"resource_spec": {"memory_limit": 1048576}}'
     echo "✅ Namespace capacity update automatically saved."
 fi
+
+# Create the VCFA Context (needs token, done after capture)
+echo "Creating VCFA CLI context..."
+vcf context create vcfa \
+  --endpoint auto-a.site-a.vcf.lab \
+  --api-token "$VCFA_TOKEN" \
+  --tenant-name "$VCFA_ORG" \
+  --ca-certificate "$VCFA_CERT_PATH" 2>/dev/null || echo "VCFA context may already exist. Continuing..."
+
 
 echo "Phase 2: Applying the rest of the infrastructure (ArgoCD, K8s cluster, etc.)..."
 terraform apply -auto-approve
@@ -594,7 +595,7 @@ echo "║             ✅ Field Lab Deployment Complete!                        
 echo "╚═══════════════════════════════════════════════════════════════════════╝"
 echo ""
 echo "  VCF CLI Contexts configured:"
-echo "    • supervisor-ctx   → Supervisor (10.1.0.2)"
+echo "    • supervisor-ctx   → Supervisor ($SUPERVISOR_ENDPOINT)"
 echo "    • vcfa             → VCFA (auto-a.site-a.vcf.lab)"
 echo "    • e2e-niran-cls-01 → VKS Cluster ($CLUSTER_NAME)"
 echo ""
