@@ -99,14 +99,13 @@ if [ -f /etc/apt/sources.list.d/ubuntu.sources ] && \
         /etc/apt/sources.list.d/ubuntu.sources
 fi
 
-if ! command -v curl &>/dev/null; then
-    echo "Bootstrapping curl..."
-    echo "$LAB_PASS" | sudo -S apt-get install -y curl libcurl4t64 2>/dev/null || \
-        echo "$LAB_PASS" | sudo -S apt-get install -y curl
-fi
-
 echo "$LAB_PASS" | sudo -S apt-get update -y
 echo "$LAB_PASS" | sudo -S apt-get --fix-broken install -y
+
+if ! command -v curl &>/dev/null; then
+    echo "Bootstrapping curl..."
+    echo "$LAB_PASS" | sudo -S apt-get install -y curl
+fi
 
 TOOLS="curl unzip git jq gpg zsh expect kubectx kubens kubecolor vim fzf"
 for tool in $TOOLS; do
