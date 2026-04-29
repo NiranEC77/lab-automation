@@ -90,22 +90,16 @@ TFVARS_FILE="$REPO_DIR/argo-e2e/terraform.tfvars"
 # --- 3. Install CLIs & Prerequisites ---
 echo "Checking prerequisites..."
 
-# Ensure all Ubuntu repo components are available (main, restricted, universe alongside multiverse)
-if [ -f /etc/apt/sources.list.d/ubuntu.sources ] && \
-   ! grep -q "main restricted universe" /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null; then
+# Ensure all Ubuntu repo components are available across all stanzas (main, restricted, universe, multiverse)
+if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
     echo "Expanding Ubuntu apt sources..."
     echo "$LAB_PASS" | sudo -S sed -i \
-        '0,/multiverse/s/multiverse/multiverse main restricted universe/' \
+        's/^Components:.*/Components: main restricted universe multiverse/' \
         /etc/apt/sources.list.d/ubuntu.sources
 fi
 
 echo "$LAB_PASS" | sudo -S apt-get update -y
 echo "$LAB_PASS" | sudo -S apt-get --fix-broken install -y
-
-if ! command -v curl &>/dev/null; then
-    echo "Bootstrapping curl..."
-    echo "$LAB_PASS" | sudo -S apt-get install -y curl
-fi
 
 TOOLS="curl unzip git jq gpg zsh expect kubectx kubens kubecolor vim fzf"
 for tool in $TOOLS; do

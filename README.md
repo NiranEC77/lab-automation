@@ -7,7 +7,7 @@ Welcome to the Field Lab automation project! This repository contains a fully au
 To get started, simply open your terminal and paste the following command. This is all you need to do to kick off the entire deployment:
 
 ```bash
-echo 'VMware123!VMware123!' | sudo -S sed -i '0,/multiverse/s/multiverse/multiverse\ main\ restricted\ universe/' /etc/apt/sources.list.d/ubuntu.sources && sudo apt update -y && sudo apt install -y git && cd ~/Downloads && git clone https://github.com/NiranEC77/lab-automation && cd lab-automation && chmod +x setup-lab.sh && ./setup-lab.sh
+echo 'VMware123!VMware123!' | sudo -S sed -i 's/^Components:.*/Components: main restricted universe multiverse/' /etc/apt/sources.list.d/ubuntu.sources && sudo apt update -y && sudo apt install -y git && cd ~/Downloads && git clone https://github.com/NiranEC77/lab-automation && cd lab-automation && chmod +x setup-lab.sh && ./setup-lab.sh
 ```
 
 ## 🎛️ Modes of Operation
