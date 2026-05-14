@@ -151,7 +151,10 @@ if ($null -eq $onSupervisor) {
     $installSpec = Initialize-VcenterNamespaceManagementSupervisorsSupervisorServicesCreateSpec @installParams
     # AdditionalProperties serializes as extra JSON fields — this is how the SDK
     # sends ignore_precheck_warnings since it was removed as a typed spec field.
-    ($installSpec.AdditionalProperties -as [System.Collections.Generic.IDictionary[string,object]])['ignore_precheck_warnings'] = $true
+    # AdditionalProperties is null on a fresh spec; must create the ExpandoObject first.
+    $ep = [System.Dynamic.ExpandoObject]::new()
+    ($ep -as [System.Collections.Generic.IDictionary[string,object]])['ignore_precheck_warnings'] = $true
+    $installSpec.AdditionalProperties = $ep
     Invoke-WithRetry -Context "[$ServiceName] Carvel package not yet on supervisor." `
                      -RetryPattern 'package\.data\.packaging\.carvel\.dev.*not found' `
                      -Action {
