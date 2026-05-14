@@ -149,8 +149,6 @@ if ($null -eq $onSupervisor) {
         )
     }
     $installSpec = Initialize-VcenterNamespaceManagementSupervisorsSupervisorServicesCreateSpec @installParams
-    # AdditionalProperties is a pre-initialized Dictionary on the spec — add to it directly.
-    $installSpec.AdditionalProperties['ignore_precheck_warnings'] = $true
     Invoke-WithRetry -Context "[$ServiceName] Carvel package not yet on supervisor." `
                      -RetryPattern 'package\.data\.packaging\.carvel\.dev.*not found' `
                      -Action {
