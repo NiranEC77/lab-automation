@@ -149,12 +149,14 @@ if ($null -eq $onSupervisor) {
         )
     }
     $installSpec = Initialize-VcenterNamespaceManagementSupervisorsSupervisorServicesCreateSpec @installParams
-    # AdditionalProperties serializes as extra JSON fields — this is how the SDK
-    # sends ignore_precheck_warnings since it was removed as a typed spec field.
-    # AdditionalProperties is null on a fresh spec; must create the ExpandoObject first.
+    # AdditionalProperties serializes as extra JSON fields — this sends ignore_precheck_warnings
+    # since it was removed as a typed spec field. ExpandoObject requires .Add() via an explicit
+    # IDictionary reference; indexer syntax doesn't work in PowerShell. The property is also
+    # read-only on the generated binding type so SetValue via reflection is required.
     $ep = [System.Dynamic.ExpandoObject]::new()
-    ($ep -as [System.Collections.Generic.IDictionary[string,object]])['ignore_precheck_warnings'] = $true
-    $installSpec.AdditionalProperties = $ep
+    $epDict = [System.Collections.Generic.IDictionary[string,object]]$ep
+    $epDict.Add('ignore_precheck_warnings', $true)
+    $installSpec.GetType().GetProperty('AdditionalProperties').SetValue($installSpec, $ep)
     Invoke-WithRetry -Context "[$ServiceName] Carvel package not yet on supervisor." `
                      -RetryPattern 'package\.data\.packaging\.carvel\.dev.*not found' `
                      -Action {
