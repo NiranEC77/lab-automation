@@ -33,30 +33,13 @@ param(
 #   Invoke-GetSupervisorSupervisorServiceNamespaceManagement       GET  /supervisors/{sup}/supervisor-services/{svc}
 #   Invoke-SetSupervisorSupervisorServiceNamespaceManagement       PUT  /supervisors/{sup}/supervisor-services/{svc}
 #
-# Supervisor listing (resolves supervisor ID from cluster):
-#   Invoke-ListNamespaceManagementSupervisors                      GET  /supervisors
 # ---------------------------------------------------------------------------
 
 function Get-SupervisorId {
-    <#
-    .SYNOPSIS
-    Resolves the Supervisor identifier required by the new API.
-    The Supervisor ID is NOT the cluster MoRef — it is an opaque string
-    returned by GET /api/vcenter/namespace-management/supervisors.
-    #>
+    # The Supervisor identifier used by the namespace-management supervisors API
+    # is the cluster MoRef value (e.g. "domain-c9") — no separate lookup needed.
     param([string]$ClusterName)
-
-    $cluster    = Get-Cluster -Name $ClusterName -ErrorAction Stop
-    $clusterMoRef = $cluster.ExtensionData.MoRef.Value
-
-    $supervisors = Invoke-ListNamespaceManagementSupervisors
-    $supervisor  = $supervisors | Where-Object { $_.ConfiguredClusters -contains $clusterMoRef }
-
-    if (-not $supervisor) {
-        throw "No Supervisor found for cluster '$ClusterName' (MoRef: $clusterMoRef). " +
-              "Verify the cluster has Workload Management enabled."
-    }
-    return $supervisor.Supervisor
+    return (Get-Cluster -Name $ClusterName -ErrorAction Stop).ExtensionData.MoRef.Value
 }
 
 function Invoke-WithRetry {
