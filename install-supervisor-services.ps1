@@ -8,31 +8,24 @@ param(
     [string]$ConfigYamlPath = ""
 )
 
+Import-Module VMware.Sdk.vSphere -RequiredVersion 13.5.0.25380678 -Force
+
 # ---------------------------------------------------------------------------
-# Cmdlet discovery — run these interactively to verify exact names on your SDK
-# version before executing the full script.
+# Module: VMware.Sdk.vSphere 13.5.0.25380678
+# In SDK 9.x the per-subsystem modules (e.g. VMware.Sdk.vSphere.vCenter.NamespaceManagement)
+# are stub packages — all cmdlets live in the consolidated VMware.Sdk.vSphere module.
 #
-#   Get-Command -Module VMware.Sdk.vSphere.vCenter.NamespaceManagement |
-#       Where-Object { $_.Name -match 'SupervisorService' } |
-#       Select-Object Name | Sort-Object Name
-#
-# Tier 1 — service definition management (unchanged from pre-9.x):
+# Tier 1 — service definition management (cmdlet names unchanged from 8.x):
 #   Invoke-CreateNamespaceManagementSupervisorServices          POST /supervisor-services
-#   Invoke-ListNamespaceManagementSupervisorServices            GET  /supervisor-services
 #   Invoke-GetSupervisorServiceNamespaceManagement              GET  /supervisor-services/{svc}
-#   Invoke-UpdateSupervisorServiceNamespaceManagement           PATCH
-#   Invoke-DeleteSupervisorServiceNamespaceManagement           DELETE
-#   Invoke-ActivateSupervisorServiceNamespaceManagement         PATCH ?action=activate
-#   Invoke-DeactivateSupervisorServiceNamespaceManagement       PATCH ?action=deactivate
-#   Invoke-CreateSupervisorServiceNamespaceManagementVersions   POST  /supervisor-services/{svc}/versions
-#   Invoke-GetSupervisorServiceVersionNamespaceManagement       GET   /supervisor-services/{svc}/versions/{ver}
+#   Invoke-CreateSupervisorServiceNamespaceManagementVersions   POST /supervisor-services/{svc}/versions
+#   Invoke-GetSupervisorServiceVersionNamespaceManagement       GET  /supervisor-services/{svc}/versions/{ver}
 #
-# Tier 2 — install/manage on a Supervisor (NEW in 9.x, replaces Cluster* cmdlets):
-#   Invoke-CreateNamespaceManagementSupervisorSupervisorServices   POST /supervisors/{sup}/supervisor-services
-#   Invoke-ListNamespaceManagementSupervisorSupervisorServices     GET  /supervisors/{sup}/supervisor-services
-#   Invoke-GetSupervisorSupervisorServiceNamespaceManagement       GET  /supervisors/{sup}/supervisor-services/{svc}
-#   Invoke-SetSupervisorSupervisorServiceNamespaceManagement       PUT  /supervisors/{sup}/supervisor-services/{svc}
-#
+# Tier 2 — install/manage on a Supervisor (Vcenter-prefixed cmdlets, 9.x SDK):
+#   Invoke-VcenterNamespaceManagementSupervisorsSupervisorServicesCreate  POST /supervisors/{sup}/supervisor-services
+#   Invoke-VcenterNamespaceManagementSupervisorsSupervisorServicesGet     GET  /supervisors/{sup}/supervisor-services/{svc}
+#   Invoke-VcenterNamespaceManagementSupervisorsSupervisorServicesSet     PUT  /supervisors/{sup}/supervisor-services/{svc}
+#   Invoke-VcenterNamespaceManagementSupervisorsSupervisorServicesList    GET  /supervisors/{sup}/supervisor-services
 # ---------------------------------------------------------------------------
 
 function Get-SupervisorId {
@@ -124,53 +117,42 @@ if ($null -eq $existing) {
 
 # --- Tier 2: Install or update on the Supervisor (new API) ---
 #
-# Key spec differences vs. old ClusterSupervisorServices API:
-#
-#   OLD CreateSpec fields:                NEW CreateSpec fields:
-#   SupervisorService (string)            SupervisorService (string)       ← same
-#   Version (string)                      Version (string)                 ← same
-#   YamlServiceConfig (base64 string)     YamlServiceConfig (base64 string)← same
-#   n/a — added via Add-Member hack       IgnorePrecheckWarnings (bool)    ← proper SDK field (9.1+)
-#
-#   OLD SetSpec:                          NEW SetSpec:
-#   -Version                              -Version                         ← same
-#   n/a — Add-Member hack                 -IgnorePrecheckWarnings (bool)   ← proper SDK field (9.1+)
-#
-# The -Cluster parameter is replaced by -Supervisor (Supervisor ID string,
-# NOT the ClusterComputeResource MoRef).
+# Spec differences vs. old ClusterSupervisorServices API:
+#   OLD CreateSpec: SupervisorService, Version, YamlServiceConfig + Add-Member hack for ignore_warnings
+#   NEW CreateSpec: SupervisorService, Version, YamlServiceConfig  (precheck bypass removed from spec)
+#   OLD SetSpec:    Version + Add-Member hack
+#   NEW SetSpec:    Version, YamlServiceConfig
+#   Parameter:      -Cluster (MoRef) → -Supervisor (MoRef, same value)
 
 $onSupervisor = $null
-try { $onSupervisor = Invoke-GetSupervisorSupervisorServiceNamespaceManagement -Supervisor $supervisorId -SupervisorService $ServiceName } catch {}
+try { $onSupervisor = Invoke-VcenterNamespaceManagementSupervisorsSupervisorServicesGet -Supervisor $supervisorId -SupervisorService $ServiceName } catch {}
 
 if ($null -eq $onSupervisor) {
     Write-Host "[$ServiceName] Installing on supervisor..."
     $installParams = @{
-        SupervisorService      = $ServiceName
-        Version                = $version
-        IgnorePrecheckWarnings = $true
+        SupervisorService = $ServiceName
+        Version           = $version
     }
     if ($ConfigYamlPath -ne "" -and (Test-Path $ConfigYamlPath)) {
         $installParams["YamlServiceConfig"] = [Convert]::ToBase64String(
             [System.Text.Encoding]::UTF8.GetBytes((Get-Content -Path $ConfigYamlPath -Raw))
         )
     }
-    $installSpec = Initialize-NamespaceManagementSupervisorsSupervisorServicesCreateSpec @installParams
+    $installSpec = Initialize-VcenterNamespaceManagementSupervisorsSupervisorServicesCreateSpec @installParams
     Invoke-WithRetry -Context "[$ServiceName] Carvel package not yet on supervisor." `
                      -RetryPattern 'package\.data\.packaging\.carvel\.dev.*not found' `
                      -Action {
-        Invoke-CreateNamespaceManagementSupervisorSupervisorServices `
+        Invoke-VcenterNamespaceManagementSupervisorsSupervisorServicesCreate `
             -Supervisor $supervisorId `
-            -NamespaceManagementSupervisorsSupervisorServicesCreateSpec $installSpec | Out-Null
+            -VcenterNamespaceManagementSupervisorsSupervisorServicesCreateSpec $installSpec | Out-Null
     }
 } else {
     Write-Host "[$ServiceName] Already on supervisor — updating to $version..."
-    $setSpec = Initialize-NamespaceManagementSupervisorsSupervisorServicesSetSpec `
-        -Version $version `
-        -IgnorePrecheckWarnings $true
-    Invoke-SetSupervisorSupervisorServiceNamespaceManagement `
+    $setSpec = Initialize-VcenterNamespaceManagementSupervisorsSupervisorServicesSetSpec -Version $version
+    Invoke-VcenterNamespaceManagementSupervisorsSupervisorServicesSet `
         -Supervisor $supervisorId `
         -SupervisorService $ServiceName `
-        -NamespaceManagementSupervisorsSupervisorServicesSetSpec $setSpec | Out-Null
+        -VcenterNamespaceManagementSupervisorsSupervisorServicesSetSpec $setSpec | Out-Null
 }
 
 Write-Host "[$ServiceName] Done."
