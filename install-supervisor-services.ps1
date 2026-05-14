@@ -29,10 +29,20 @@ Import-Module VMware.Sdk.vSphere -RequiredVersion 13.5.0.25380678 -Force
 # ---------------------------------------------------------------------------
 
 function Get-SupervisorId {
-    # The Supervisor identifier used by the namespace-management supervisors API
-    # is the cluster MoRef value (e.g. "domain-c9") — no separate lookup needed.
+    # In VCF 9.x the Supervisor identifier is a UUID, not the cluster MoRef.
+    # Enumerate all supervisors, check each one's topology for the cluster MoRef,
+    # and return the matching supervisor ID.
     param([string]$ClusterName)
-    return (Get-Cluster -Name $ClusterName -ErrorAction Stop).ExtensionData.MoRef.Value
+    $clusterMoRef = (Get-Cluster -Name $ClusterName -ErrorAction Stop).ExtensionData.MoRef.Value
+    $summaries = Invoke-ListNamespaceManagementSupervisorsSummaries
+    foreach ($item in $summaries.Items) {
+        $topo = $null
+        try { $topo = Invoke-GetSupervisorNamespaceManagementTopology -Supervisor $item.Supervisor } catch {}
+        if ($topo | Where-Object { $_.Clusters -contains $clusterMoRef }) {
+            return $item.Supervisor
+        }
+    }
+    throw "No Supervisor found for cluster '$ClusterName' (MoRef: $clusterMoRef). Verify Workload Management is enabled."
 }
 
 function Invoke-WithRetry {
@@ -139,6 +149,9 @@ if ($null -eq $onSupervisor) {
         )
     }
     $installSpec = Initialize-VcenterNamespaceManagementSupervisorsSupervisorServicesCreateSpec @installParams
+    # AdditionalProperties serializes as extra JSON fields — this is how the SDK
+    # sends ignore_precheck_warnings since it was removed as a typed spec field.
+    ($installSpec.AdditionalProperties -as [System.Collections.Generic.IDictionary[string,object]])['ignore_precheck_warnings'] = $true
     Invoke-WithRetry -Context "[$ServiceName] Carvel package not yet on supervisor." `
                      -RetryPattern 'package\.data\.packaging\.carvel\.dev.*not found' `
                      -Action {
