@@ -8,10 +8,16 @@ param(
     [string]$ConfigYamlPath = ""
 )
 
-if (-not (Get-Module -ListAvailable -Name VMware.Sdk.vSphere | Where-Object Version -eq '13.5.0.25380678')) {
-    Install-Module -Name VMware.Sdk.vSphere -RequiredVersion 13.5.0.25380678 -Force -AllowClobber -Scope CurrentUser
+$ErrorActionPreference = 'Stop'
+$ConfirmPreference     = 'None'
+
+$sdkVersion = '13.5.0.25380678'
+if (-not (Get-Module -ListAvailable -Name VMware.Sdk.vSphere | Where-Object { $_.Version.ToString() -eq $sdkVersion })) {
+    Write-Host "Installing VMware.Sdk.vSphere $sdkVersion..."
+    Install-Module -Name VMware.Sdk.vSphere -RequiredVersion $sdkVersion -Force -AllowClobber -Scope CurrentUser
+    Write-Host "Module installed."
 }
-Import-Module VMware.Sdk.vSphere -RequiredVersion 13.5.0.25380678 -Force
+Import-Module VMware.Sdk.vSphere -RequiredVersion $sdkVersion -Force
 
 # ---------------------------------------------------------------------------
 # Module: VMware.Sdk.vSphere 13.5.0.25380678
@@ -66,7 +72,7 @@ function Invoke-WithRetry {
                 Write-Host "$Context Retrying in ${RetryDelaySec}s (attempt $i/$RetryCount)..."
                 Start-Sleep -Seconds $RetryDelaySec
             } else {
-                throw
+                Write-Error $_ -ErrorAction Stop
             }
         }
     }
