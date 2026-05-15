@@ -97,6 +97,7 @@ function Wait-ForVersionActivated {
 Set-PowerCLIConfiguration -InvalidCertificateAction Ignore -Confirm:$false | Out-Null
 Connect-VIServer -Server $VCenterServer -User $Username -Password $Password | Out-Null
 
+
 $yaml        = Get-Content -Path $YamlPath -Raw
 $yamlB64     = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($yaml))
 $versionMatches = [regex]::Matches($yaml, '(?m)^\s{2}version:\s*(.+)$')
@@ -109,6 +110,7 @@ Write-Host "[$ServiceName] version=$version  supervisor=$supervisorId"
 $existing = $null
 try { $existing = Invoke-GetSupervisorServiceNamespaceManagement -SupervisorService $ServiceName } catch {}
 
+$justActivated = $false
 if ($null -eq $existing) {
     Write-Host "[$ServiceName] Not found — registering..."
     $carvelVersionSpec = Initialize-NamespaceManagementSupervisorServicesVersionsCarvelCreateSpec -Content $yamlB64
@@ -117,6 +119,7 @@ if ($null -eq $existing) {
     Invoke-CreateNamespaceManagementSupervisorServices `
         -NamespaceManagementSupervisorServicesCreateSpec $createSpec | Out-Null
     Wait-ForVersionActivated -ServiceName $ServiceName -Version $version
+    $justActivated = $true
 } else {
     $existingVersion = $null
     try { $existingVersion = Invoke-GetSupervisorServiceVersionNamespaceManagement -SupervisorService $ServiceName -Version $version } catch {}
@@ -129,9 +132,15 @@ if ($null -eq $existing) {
             -SupervisorService $ServiceName `
             -NamespaceManagementSupervisorServicesVersionsCreateSpec $versionSpec | Out-Null
         Wait-ForVersionActivated -ServiceName $ServiceName -Version $version
+        $justActivated = $true
     } else {
         Write-Host "[$ServiceName] Version $version already exists — skipping."
     }
+}
+
+if ($justActivated) {
+    Write-Host "[$ServiceName] Waiting 30s for version to propagate to supervisor..."
+    Start-Sleep -Seconds 30
 }
 
 # --- Tier 2: Install or update on the Supervisor (new API) ---
