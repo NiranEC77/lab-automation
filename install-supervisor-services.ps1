@@ -8,6 +8,9 @@ param(
     [string]$ConfigYamlPath = ""
 )
 
+if (-not (Get-Module -ListAvailable -Name VMware.Sdk.vSphere | Where-Object Version -eq '13.5.0.25380678')) {
+    Install-Module -Name VMware.Sdk.vSphere -RequiredVersion 13.5.0.25380678 -Force -AllowClobber -Scope CurrentUser
+}
 Import-Module VMware.Sdk.vSphere -RequiredVersion 13.5.0.25380678 -Force
 
 # ---------------------------------------------------------------------------
