@@ -34,16 +34,16 @@ echo "Which lab environment?"
 echo ""
 echo "  1) vks   → VKS Lab          (org: Broadcom,    user: broadcomadmin)"
 echo "  2) adv   → Advanced Lab     (org: all-apps,    user: all-apps-admin)"
-echo "  3) ss    → 9.1 Single Site  (org: Acme-East-A, user: acme-east-a)"
+echo "  3) 9.1   → 9.1 Single Site  (org: Acme-East-A, user: acme-east-a)"
 echo ""
-read -p "Enter your choice [vks/adv/ss]: " LAB_ENV
+read -p "Enter your choice [vks/adv/9.1]: " LAB_ENV
 echo ""
 
 case "$LAB_ENV" in
     1|vks|v)   LAB_ENV="vks" ;;
     2|adv|a)   LAB_ENV="adv" ;;
-    3|ss|s)    LAB_ENV="ss" ;;
-    *) echo "❌ Invalid choice. Please run again and choose 'vks', 'adv', or 'ss'."; exit 1 ;;
+    3|9.1)     LAB_ENV="ss" ;;
+    *) echo "❌ Invalid choice. Please run again and choose 'vks', 'adv', or '9.1'."; exit 1 ;;
 esac
 
 echo "Running for ${LAB_ENV^^} environment..."
@@ -101,6 +101,8 @@ mkdir -p "$LAB_DIR"
 mkdir -p "$DESKTOP_DIR"
 
 SVC_DIR="$SCRIPT_DIR/supervisor-services"
+VCENTER_SERVER="vc-wld01-a.site-a.vcf.lab"
+VCENTER_USER="administrator@wld.sso"
 VCENTER_CLUSTER_NAME="cluster-wld01-01a"
 TOKEN_FILE="$DESKTOP_DIR/vcfa_api_token.txt"
 TFVARS_FILE="$REPO_DIR/argo-e2e/terraform.tfvars"
@@ -273,7 +275,7 @@ vcf telemetry update --opted-out 2>/dev/null || true
 echo "Creating VCF Supervisor Context..."
 vcf context create supervisor-ctx \
   --endpoint "$SUPERVISOR_ENDPOINT" \
-  --username administrator@wld.sso \
+  --username $VCENTER_USER \
   --insecure-skip-tls-verify \
   -t kubernetes \
   --auth-type basic 2>/dev/null || echo "Context may already exist. Continuing..."
@@ -287,12 +289,12 @@ echo ""
 echo "Patching Content Library SSL Certificates to prevent deployment errors..."
 
 set +e  # Best-effort fixes — don't crash if vCenter API hiccups
-SID=$(curl -k -s -X POST -u "administrator@wld.sso:$LAB_PASS" "https://vc-wld01-a.site-a.vcf.lab/rest/com/vmware/cis/session" | jq -r .value)
+SID=$(curl -k -s -X POST -u "$VCENTER_USER:$LAB_PASS" "https://$VCENTER_SERVER/rest/com/vmware/cis/session" | jq -r .value)
 
-LIB_IDS=$(curl -k -s -X GET -H "vmware-api-session-id: $SID" "https://vc-wld01-a.site-a.vcf.lab/api/content/subscribed-library" | jq -r '.[]' 2>/dev/null)
+LIB_IDS=$(curl -k -s -X GET -H "vmware-api-session-id: $SID" "https://$VCENTER_SERVER/api/content/subscribed-library" | jq -r '.[]' 2>/dev/null)
 
 for LIB_ID in $LIB_IDS; do
-    LIB_INFO=$(curl -k -s -X GET -H "vmware-api-session-id: $SID" "https://vc-wld01-a.site-a.vcf.lab/api/content/subscribed-library/$LIB_ID" 2>/dev/null)
+    LIB_INFO=$(curl -k -s -X GET -H "vmware-api-session-id: $SID" "https://$VCENTER_SERVER/api/content/subscribed-library/$LIB_ID" 2>/dev/null)
     URL=$(echo "$LIB_INFO" | jq -r '.subscription_info.subscription_url // empty' 2>/dev/null)
     
     if [[ "$URL" == https* ]]; then
@@ -303,10 +305,10 @@ for LIB_ID in $LIB_IDS; do
             echo "-> Trusting SSL thumbprint for $HOST ($THUMBPRINT)..."
             curl -k -s -X PATCH -H "vmware-api-session-id: $SID" -H "Content-Type: application/json" \
               -d "{\"subscription_info\": {\"ssl_thumbprint\": \"$THUMBPRINT\"}}" \
-              "https://vc-wld01-a.site-a.vcf.lab/api/content/subscribed-library/$LIB_ID"
+              "https://$VCENTER_SERVER/api/content/subscribed-library/$LIB_ID"
               
             echo "-> Forcing sync for library $LIB_ID..."
-            curl -k -s -X POST -H "vmware-api-session-id: $SID" "https://vc-wld01-a.site-a.vcf.lab/api/content/subscribed-library/$LIB_ID?action=sync"
+            curl -k -s -X POST -H "vmware-api-session-id: $SID" "https://$VCENTER_SERVER/api/content/subscribed-library/$LIB_ID?action=sync"
         fi
     fi
 done
@@ -314,23 +316,33 @@ echo "✅ Content Library SSL fix applied."
 set -e
 
 
-# --- 10. VCFA Certificate & Context ---
+# --- 10. Update Content Library Subscription URL ---
+CONTENT_LIBRARY_NAME="kubernetes service content library"
+CONTENT_LIBRARY_URL="https://wp-content.vmware.com/v2/latest/lib.json"
+
+echo "Updating Content Library subscription URL..."
+pwsh -NonInteractive -File "$SCRIPT_DIR/update-content-library.ps1" \
+    -VCenterServer "$VCENTER_SERVER" \
+    -LibraryName "$CONTENT_LIBRARY_NAME" \
+    -NewSubscriptionUrl "$CONTENT_LIBRARY_URL" \
+    -Username "$VCENTER_USER" \
+    -Password "$LAB_PASS"
+
+
+# --- 11. VCFA Certificate & Context ---
 echo ""
 echo "Fetching VCFA certificate chain..."
 VCFA_CERT_PATH="$LAB_DIR/vcfa_chain.pem"
 openssl s_client -showcerts -connect auto-a.site-a.vcf.lab:443 </dev/null 2>/dev/null | awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/{print}' > "$VCFA_CERT_PATH"
 
 
-# --- 11. Manual Intervention & Token Capture ---
+# --- 12. Manual Intervention & Token Capture ---
 # Skip if token and tfvars already exist from a previous prep run
 if [ -f "$TOKEN_FILE" ] && [ -f "$TFVARS_FILE" ]; then
     echo "✅ Previous prep detected — token and terraform.tfvars already exist. Skipping manual steps..."
     VCFA_TOKEN=$(cat "$TOKEN_FILE")
 else
     echo "Installing supervisor services via PowerCLI..."
-    _VC="vc-wld01-a.site-a.vcf.lab"
-    _VCUSER="administrator@wld.sso"
-
     declare -A _SERVICES=(
         ["tkg.vsphere.vmware.com"]="$SVC_DIR/vks-upgrade.yaml"
         ["argocd-service.vsphere.vmware.com"]="$SVC_DIR/argocd-service.yaml"
@@ -343,8 +355,8 @@ else
 
     for _SVC in "${!_SERVICES[@]}"; do
         _ARGS=(
-            -VCenterServer "$_VC"
-            -Username "$_VCUSER"
+            -VCenterServer "$VCENTER_SERVER"
+            -Username "$VCENTER_USER"
             -Password "$LAB_PASS"
             -YamlPath "${_SERVICES[$_SVC]}"
             -ServiceName "$_SVC"
@@ -434,7 +446,7 @@ fi
 #                     DEPLOY (only runs in deploy mode)                       #
 ###############################################################################
 
-# --- 12. Terraform Execution ---
+# --- 13. Terraform Execution ---
 echo "Phase 1: Targeting Supervisor Namespace creation..."
 terraform apply -target=module.supervisor_namespace -auto-approve
 
@@ -448,9 +460,9 @@ sleep 5 # Give k8s a few seconds to register the newly created namespace
 NS_NAME=$(kubectl get ns --no-headers 2>/dev/null | grep e2e-ns | awk '{print $1}')
 
 if [ ! -z "$NS_NAME" ]; then
-    SID=$(curl -k -s -X POST -u "administrator@wld.sso:$LAB_PASS" "https://vc-wld01-a.site-a.vcf.lab/rest/com/vmware/cis/session" | jq -r .value)
+    SID=$(curl -k -s -X POST -u "$VCENTER_USER:$LAB_PASS" "https://$VCENTER_SERVER/rest/com/vmware/cis/session" | jq -r .value)
     curl -k -s -X PATCH -H "vmware-api-session-id: $SID" -H "Content-Type: application/json" \
-      "https://vc-wld01-a.site-a.vcf.lab/api/vcenter/namespaces/instances/$NS_NAME" \
+      "https://$VCENTER_SERVER/api/vcenter/namespaces/instances/$NS_NAME" \
       -d '{"resource_spec": {"memory_limit": 1048576}}'
     echo "✅ Namespace capacity update automatically saved."
 fi
@@ -509,7 +521,7 @@ fi
 set -e
 
 
-# --- 13. VKS Cluster Context Configuration ---
+# --- 14. VKS Cluster Context Configuration ---
 echo ""
 echo "Configuring VKS cluster context for $CLUSTER_NAME..."
 
