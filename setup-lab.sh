@@ -317,7 +317,7 @@ set -e
 
 
 # --- 10. Update Content Library Subscription URL ---
-CONTENT_LIBRARY_NAME="kubernetes service content library"
+CONTENT_LIBRARY_NAME="Kubernetes Service Content Library"
 CONTENT_LIBRARY_URL="https://wp-content.vmware.com/v2/latest/lib.json"
 
 echo "Updating Content Library subscription URL..."
