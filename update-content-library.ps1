@@ -25,11 +25,21 @@ try {
     if (-not $library) {
         throw "Content Library '$LibraryName' not found on $VCenterServer."
     }
+    # Fetch the SSL thumbprint for the subscription host so Set-ContentLibrary can validate it
+    $subUri    = [System.Uri]$NewSubscriptionUrl
+    $tcp       = [System.Net.Sockets.TcpClient]::new($subUri.Host, 443)
+    $ssl       = [System.Net.Security.SslStream]::new($tcp.GetStream(), $false, { $true })
+    $ssl.AuthenticateAsClient($subUri.Host)
+    $cert      = [System.Security.Cryptography.X509Certificates.X509Certificate2]$ssl.RemoteCertificate
+    $thumbprint = [regex]::Replace($cert.Thumbprint, '..(?!$)', '$0:')
+    $ssl.Close(); $tcp.Close()
+
     Write-Host "Updating subscription URL for '$LibraryName'..."
     Write-Host "  Old URL: $($library.SubscriptionUrl)"
     Write-Host "  New URL: $NewSubscriptionUrl"
+    Write-Host "  SSL Thumbprint: $thumbprint"
 
-    Set-ContentLibrary -SubscribedContentLibrary $library -SubscriptionUrl $NewSubscriptionUrl | Out-Null
+    Set-ContentLibrary -SubscribedContentLibrary $library -SubscriptionUrl $NewSubscriptionUrl -SslThumbprint $thumbprint | Out-Null
 
     Write-Host "Forcing synchronization of '$LibraryName'..."
     Set-ContentLibrary -SubscribedContentLibrary $library -Sync | Out-Null
