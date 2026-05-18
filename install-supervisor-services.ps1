@@ -181,11 +181,6 @@ if ($null -eq $existing) {
     }
 }
 
-if ($justActivated) {
-    Write-Host "[$ServiceName] Waiting 30s for version to propagate to supervisor..."
-    Start-Sleep -Seconds 30
-}
-
 # --- Precheck: must pass before install or upgrade ---
 Invoke-SupervisorServicePrecheck -SupervisorId $supervisorId -ServiceName $ServiceName -Version $version
 Wait-ForPrecheckSuccess -SupervisorId $supervisorId -ServiceName $ServiceName -Version $version
