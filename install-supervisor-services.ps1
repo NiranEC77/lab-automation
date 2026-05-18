@@ -174,6 +174,8 @@ if ($null -eq $onSupervisor) {
             -Supervisor $supervisorId `
             -VcenterNamespaceManagementSupervisorsSupervisorServicesCreateSpec $installSpec | Out-Null
     }
+} elseif ($onSupervisor.Version -eq $version) {
+    Write-Host "[$ServiceName] Version $version already installed on supervisor — skipping."
 } else {
     Write-Host "[$ServiceName] Already on supervisor — updating to $version..."
     $setSpec = Initialize-VcenterNamespaceManagementSupervisorsSupervisorServicesSetSpec -Version $version
