@@ -2,6 +2,10 @@
 # Stop execution if any command fails
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=ctx-lib.sh
+source "$SCRIPT_DIR/ctx-lib.sh"
+
 
 # --- Mode Selection (ask first, automate everything after) ---
 echo ""
@@ -30,24 +34,7 @@ esac
 echo "Running in ${MODE^^} mode..."
 echo ""
 
-echo "Which lab environment?"
-echo ""
-echo "  1) vks   → VKS Lab          (org: Broadcom,    user: broadcomadmin)"
-echo "  2) adv   → Advanced Lab     (org: all-apps,    user: all-apps-admin)"
-echo "  3) 9.1   → 9.1 Single Site  (org: Acme-East-A, user: acme-east-a)"
-echo ""
-read -p "Enter your choice [vks/adv/9.1]: " LAB_ENV
-echo ""
-
-case "$LAB_ENV" in
-    1|vks|v)   LAB_ENV="vks" ;;
-    2|adv|a)   LAB_ENV="adv" ;;
-    3|9.1)     LAB_ENV="ss" ;;
-    *) echo "❌ Invalid choice. Please run again and choose 'vks', 'adv', or '9.1'."; exit 1 ;;
-esac
-
-echo "Running for ${LAB_ENV^^} environment..."
-echo ""
+pick_environment
 
 
 ###############################################################################
@@ -55,42 +42,6 @@ echo ""
 ###############################################################################
 
 # --- 1. Variables & Folder Structure ---
-LAB_PASS='VMware123!VMware123!'
-
-if [[ "$LAB_ENV" == "vks" ]]; then
-    VCFA_ORG="Broadcom"
-    VCFA_USER="broadcomadmin"
-    SUPERVISOR_ENDPOINT="10.1.0.6"
-    REGION_NAME="us-west"
-    VPC_NAME="us-west-Default-VPC"
-    ZONE_NAME="z-wld-a"
-    STORAGE_POLICY="vSAN Default Storage Policy"
-    STORAGE_CLASS="vsan-default-storage-policy"
-    NS_STORAGE_LIMIT="100000Mi"
-elif [[ "$LAB_ENV" == "adv" ]]; then
-    VCFA_ORG="all-apps"
-    VCFA_USER="all-apps-admin"
-    SUPERVISOR_ENDPOINT="10.1.0.2"
-    REGION_NAME="us-west-region"
-    VPC_NAME="us-west-region-default-vpc"
-    ZONE_NAME="z-wld-a"
-    STORAGE_POLICY="cluster-wld01-01a vSAN Storage Policy"
-    STORAGE_CLASS="cluster-wld01-01a-vsan-storage-policy"
-    NS_STORAGE_LIMIT="102400Mi"
-else
-    VCFA_ORG="Acme-East-A"
-    VCFA_USER="acme-east-a"
-    SUPERVISOR_ENDPOINT="10.1.8.132"
-    REGION_NAME="us-east-a"
-    VPC_NAME="default-us-east-a"
-    ZONE_NAME="z-wld-a"
-    STORAGE_POLICY="vSAN Default Storage Policy"
-    STORAGE_CLASS="vsan-default-storage-policy"
-    NS_STORAGE_LIMIT="100000Mi"
-fi
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 echo "Verifying folder structure..."
 LAB_DIR="$HOME/field-lab"
 REPO_DIR="$LAB_DIR/vcfa-terraform-examples"
@@ -298,17 +249,15 @@ pwsh -NonInteractive -File "$SCRIPT_DIR/update-content-library.ps1" \
 
 
 # --- 11. VCFA Certificate & Context ---
-echo ""
-echo "Fetching VCFA certificate chain..."
 VCFA_CERT_PATH="$LAB_DIR/vcfa_chain.pem"
-openssl s_client -showcerts -connect auto-a.site-a.vcf.lab:443 </dev/null 2>/dev/null | awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/{print}' > "$VCFA_CERT_PATH"
 
 
 # --- 12. Manual Intervention & Token Capture ---
 # Skip if token and tfvars already exist from a previous prep run
 if [ -f "$TOKEN_FILE" ] && [ -f "$TFVARS_FILE" ]; then
     echo "✅ Previous prep detected — token and terraform.tfvars already exist. Skipping manual steps..."
-    VCFA_TOKEN=$(cat "$TOKEN_FILE")
+    VCF_CLI_VCFA_API_TOKEN=$(cat "$TOKEN_FILE")
+    export VCF_CLI_VCFA_API_TOKEN
 else
     echo "Installing supervisor services via PowerCLI..."
     declare -A _SERVICES=(
@@ -338,26 +287,7 @@ else
 
     # --- Auto-generate VCFA API token ---
     echo "Generating VCFA API token automatically..."
-
-    set +e
-    VCFA_TOKEN=$(python3 "$SCRIPT_DIR/vcfa-token.py" "$VCFA_USER" "$LAB_PASS" "$VCFA_ORG" 2>/tmp/vcfa_token_err.txt)
-    _TOKEN_EXIT=$?
-    set -e
-
-    if [ $_TOKEN_EXIT -ne 0 ] || [ -z "$VCFA_TOKEN" ]; then
-        echo "⚠️ Automated token generation failed:"
-        cat /tmp/vcfa_token_err.txt 2>/dev/null || true
-        rm -f /tmp/vcfa_token_err.txt
-        echo "   Falling back to manual entry..."
-        read -s -p "  🔑 Paste your VCFA API Token here and hit Enter (input hidden): " VCFA_TOKEN
-        echo ""
-    else
-        echo "✅ VCFA API token generated automatically."
-        rm -f /tmp/vcfa_token_err.txt
-    fi
-
-    echo "  Token saved to Desktop..."
-    echo "$VCFA_TOKEN" > "$TOKEN_FILE"
+    get_vcfa_token "$SCRIPT_DIR"
 
     cd "$REPO_DIR/argo-e2e"
 
@@ -372,7 +302,7 @@ namespace           = "e2e-ns"
 cluster             = "$CLUSTER_NAME"
 bootstrap_revision  = "2.0.0"
 k8s_version         = "$K8S_VERSION"
-vcfa_refresh_token  = "$VCFA_TOKEN"
+vcfa_refresh_token  = "$VCF_CLI_VCFA_API_TOKEN"
 cluster_class       = "builtin-generic-v3.6.0"
 argocd_version      = "$ARGOCD_VERSION"
 storage_class_name      = "$STORAGE_POLICY"
@@ -436,12 +366,7 @@ if [ ! -z "$NS_NAME" ]; then
 fi
 
 # Create the VCFA Context (needs token, done after capture)
-echo "Creating VCFA CLI context..."
-vcf context create vcfa \
-  --endpoint auto-a.site-a.vcf.lab \
-  --api-token "$VCFA_TOKEN" \
-  --tenant-name "$VCFA_ORG" \
-  --ca-certificate "$VCFA_CERT_PATH" 2>/dev/null || echo "VCFA context may already exist. Continuing..."
+setup_vcfa_context
 
 
 echo ""
@@ -490,116 +415,17 @@ set -e
 
 
 # --- 14. VKS Cluster Context Configuration ---
-echo ""
-echo "Configuring VKS cluster context for $CLUSTER_NAME..."
-
-# We need a namespace-level context (e.g. vcfa:e2e-ns), not the top-level vcfa context.
-# Auto-detect the namespace context from the list of available contexts.
-echo "-> Finding VCFA namespace context..."
-NS_CTX=$(vcf context list -o json 2>/dev/null | jq -r '.[].name' 2>/dev/null | grep -i "e2e-ns" | head -1)
-
-if [ -z "$NS_CTX" ]; then
-    # Fallback: list all contexts and let the user pick
-    echo "⚠️ Could not auto-detect the namespace context."
-    echo "   Available contexts:"
-    vcf context list 2>/dev/null || true
-    echo ""
-    read -p "   Enter the namespace context name (e.g. vcfa:e2e-ns): " NS_CTX
-fi
-
-echo "-> Switching to namespace context: $NS_CTX"
-yes | vcf context use "$NS_CTX" 2>/dev/null || echo "   (context switch warning — continuing)"
-
-# Wait for the cluster to be fully ready (Pinniped Concierge needs time after Terraform)
-echo ""
-echo "-> Waiting for VKS cluster to be fully ready before configuring auth..."
-echo "   (The cluster needs time after Terraform to initialize Pinniped components)"
-echo "   Checking every 30 seconds for up to 15 minutes..."
-echo ""
-
-CLUSTER_READY=false
-for i in $(seq 1 30); do
-    # Try fetching kubeconfig as a readiness check
-    if timeout 15 bash -c "yes | vcf cluster kubeconfig get \"$CLUSTER_NAME\" --export-file /tmp/cluster-readiness-check.kubeconfig 2>&1" >/dev/null 2>&1; then
-        rm -f /tmp/cluster-readiness-check.kubeconfig
-        CLUSTER_READY=true
-        echo "   ✅ Cluster API is responding! Proceeding with auth setup..."
-        break
-    fi
-    echo "   ⏳ Cluster not ready yet... (attempt $i/30)"
-    sleep 30
-done
-
-if [ "$CLUSTER_READY" = "false" ]; then
-    echo "⚠️ Cluster did not become ready within 15 minutes."
-    echo "   Run test-cluster-ctx.sh manually once the cluster is up."
+configure_cluster_context || {
     echo ""
     echo "╔═══════════════════════════════════════════════════════════════════════╗"
     echo "║             ⚠️  Deployment Partially Complete                        ║"
     echo "╚═══════════════════════════════════════════════════════════════════════╝"
     echo ""
     echo "  Infrastructure deployed, but cluster context not yet configured."
-    echo "  Run: ./test-cluster-ctx.sh  (once the cluster finishes provisioning)"
+    echo "  Run: ./ctx2.sh  (once the cluster finishes provisioning)"
     echo ""
     exec zsh
-fi
-
-# Give Pinniped Concierge a little extra time to stabilize after API is up
-echo "-> Waiting 60s for Pinniped Concierge to stabilize..."
-sleep 60
-
-# Register JWT authenticator with retry logic
-echo "-> Registering VCFA JWT authenticator on the cluster..."
-JWT_OK=false
-for attempt in $(seq 1 3); do
-    echo "   Attempt $attempt/3..."
-    if timeout 120 bash -c "yes | vcf cluster register-vcfa-jwt-authenticator \"$CLUSTER_NAME\" 2>&1"; then
-        JWT_OK=true
-        break
-    fi
-    echo "   Retrying in 30 seconds..."
-    sleep 30
-done
-
-if [ "$JWT_OK" = "false" ]; then
-    echo "⚠️ JWT authenticator registration failed after 3 attempts."
-    echo "   You can retry with: vcf cluster register-vcfa-jwt-authenticator $CLUSTER_NAME"
-fi
-
-echo "-> Fetching kubeconfig for the VKS cluster..."
-mkdir -p ~/.kube
-if ! vcf cluster kubeconfig get "$CLUSTER_NAME"; then
-    echo "⚠️ Kubeconfig fetch failed."
-    echo "   You can run this manually later:"
-    echo "   vcf cluster kubeconfig get $CLUSTER_NAME"
-fi
-
-if [ -f ~/.kube/config ] && grep -q "$CLUSTER_NAME" ~/.kube/config 2>/dev/null; then
-    echo "-> Finding cluster context name..."
-    CLUSTER_CTX=$(grep "name:.*${CLUSTER_NAME}.*@" ~/.kube/config | awk '{print $2}' | head -1)
-
-    if [ -z "$CLUSTER_CTX" ]; then
-        echo "⚠️ Could not auto-detect the cluster context name."
-        echo "   Matching entries in kubeconfig:"
-        grep "$CLUSTER_NAME" ~/.kube/config || true
-        echo ""
-        read -p "   Paste the context name (the one with the @ sign): " CLUSTER_CTX
-    fi
-
-    echo ""
-    echo "  ✅ Cluster context is ready in your kubeconfig."
-    echo "     To switch to it, run:  kctx $CLUSTER_CTX"
-    echo ""
-else
-    echo "⚠️ Kubeconfig does not contain $CLUSTER_NAME yet."
-    echo "   The cluster may still be provisioning. Run these manually when ready:"
-    echo ""
-    echo "   vcf context use <namespace-context>"
-    echo "   vcf cluster register-vcfa-jwt-authenticator $CLUSTER_NAME"
-    echo "   vcf cluster kubeconfig get $CLUSTER_NAME"
-    echo "   Then switch with:  kctx <context-name>"
-    echo ""
-fi
+}
 
 
 echo ""
