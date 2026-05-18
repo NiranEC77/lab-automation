@@ -41,10 +41,7 @@ try {
 
     Set-ContentLibrary -SubscribedContentLibrary $library -SubscriptionUrl $NewSubscriptionUrl -SslThumbprint $thumbprint | Out-Null
 
-    Write-Host "Forcing synchronization of '$LibraryName'..."
-    Set-ContentLibrary -SubscribedContentLibrary $library -Sync | Out-Null
-
-    Write-Host "✅ '$LibraryName' subscription URL updated and sync triggered."
+    Write-Host "✅ '$LibraryName' subscription URL updated successfully."
 }
 catch {
     Write-Host "ERROR: $_" -ForegroundColor Red
