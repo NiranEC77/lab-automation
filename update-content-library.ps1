@@ -21,22 +21,18 @@ try {
         Write-Host "Connected to $VCenterServer."
     }
 
-    $library = Get-ContentLibrary -Name $LibraryName -ErrorAction SilentlyContinue
+    $library = Get-ContentLibrary -Name $LibraryName -Subscribed -ErrorAction SilentlyContinue
     if (-not $library) {
         throw "Content Library '$LibraryName' not found on $VCenterServer."
     }
-    if ($library.Type -eq 'Local') {
-        throw "Content Library '$LibraryName' is a Local library — only Subscribed libraries have a subscription URL."
-    }
-
     Write-Host "Updating subscription URL for '$LibraryName'..."
-    Write-Host "  Old URL: $($library.SubscriptionUri)"
+    Write-Host "  Old URL: $($library.SubscriptionUrl)"
     Write-Host "  New URL: $NewSubscriptionUrl"
 
-    Set-ContentLibrary -SubscribedContentLibrary $library -SubscriptionUri $NewSubscriptionUrl | Out-Null
+    Set-ContentLibrary -SubscribedContentLibrary $library -SubscriptionUrl $NewSubscriptionUrl | Out-Null
 
     Write-Host "Forcing synchronization of '$LibraryName'..."
-    Sync-ContentLibrary -SubscribedContentLibrary $library | Out-Null
+    Set-ContentLibrary -SubscribedContentLibrary $library -Sync | Out-Null
 
     Write-Host "✅ '$LibraryName' subscription URL updated and sync triggered."
 }
