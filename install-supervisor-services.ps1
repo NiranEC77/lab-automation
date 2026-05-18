@@ -35,6 +35,10 @@ Import-Module VMware.Sdk.vSphere -RequiredVersion $sdkVersion -Force
 #   Invoke-VcenterNamespaceManagementSupervisorsSupervisorServicesGet     GET  /supervisors/{sup}/supervisor-services/{svc}
 #   Invoke-VcenterNamespaceManagementSupervisorsSupervisorServicesSet     PUT  /supervisors/{sup}/supervisor-services/{svc}
 #   Invoke-VcenterNamespaceManagementSupervisorsSupervisorServicesList    GET  /supervisors/{sup}/supervisor-services
+#
+# Precheck (no Vcenter prefix on cmdlet; Vcenter prefix appears only on the spec parameter):
+#   Invoke-PrecheckSupervisorSupervisorService                                        POST /supervisors/{sup}/supervisor-services/{svc}?action=precheck
+#   Invoke-GetSupervisorSupervisorServiceTargetVersionSupervisorServicesPrecheck      GET  /supervisors/{sup}/supervisor-services/{svc}/versions/{ver}/precheck
 # ---------------------------------------------------------------------------
 
 function Get-SupervisorId {
@@ -76,6 +80,45 @@ function Invoke-WithRetry {
             }
         }
     }
+}
+
+function Invoke-SupervisorServicePrecheck {
+    param([string]$SupervisorId, [string]$ServiceName, [string]$Version)
+    Write-Host "[$ServiceName] Initiating precheck for version $Version on supervisor $SupervisorId..."
+    $precheckSpec = Initialize-NamespaceManagementSupervisorsSupervisorServicesPrecheckSpec -TargetVersion $Version
+    Invoke-PrecheckSupervisorSupervisorService `
+        -Supervisor $SupervisorId `
+        -SupervisorService $ServiceName `
+        -VcenterNamespaceManagementSupervisorsSupervisorServicesPrecheckSpec $precheckSpec | Out-Null
+}
+
+function Wait-ForPrecheckSuccess {
+    # Status values: SUCCESS, FAILED; absence means still running — poll until terminal.
+    param([string]$SupervisorId, [string]$ServiceName, [string]$Version, [int]$TimeoutSec = 300)
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    while ((Get-Date) -lt $deadline) {
+        $result = $null
+        try {
+            $result = Invoke-GetSupervisorSupervisorServiceTargetVersionSupervisorServicesPrecheck `
+                -Supervisor $SupervisorId `
+                -SupervisorService $ServiceName `
+                -TargetVersion $Version
+        } catch {}
+        if ($result) {
+            Write-Host "[$ServiceName] Precheck status: $($result.Status)"
+            if ($result.Status -eq 'SUCCESS') {
+                Write-Host "[$ServiceName] Precheck passed."
+                return
+            }
+            if ($result.Status -eq 'FAILED') {
+                throw "[$ServiceName] Precheck failed: $($result.Errors | Out-String)"
+            }
+        } else {
+            Write-Host "[$ServiceName] Precheck result not yet available, waiting..."
+        }
+        Start-Sleep -Seconds 15
+    }
+    throw "[$ServiceName] Timed out waiting for precheck to complete."
 }
 
 function Wait-ForVersionActivated {
@@ -143,6 +186,10 @@ if ($justActivated) {
     Start-Sleep -Seconds 30
 }
 
+# --- Precheck: must pass before install or upgrade ---
+Invoke-SupervisorServicePrecheck -SupervisorId $supervisorId -ServiceName $ServiceName -Version $version
+Wait-ForPrecheckSuccess -SupervisorId $supervisorId -ServiceName $ServiceName -Version $version
+
 # --- Tier 2: Install or update on the Supervisor (new API) ---
 #
 # Spec differences vs. old ClusterSupervisorServices API:
@@ -174,11 +221,10 @@ if ($null -eq $onSupervisor) {
             -Supervisor $supervisorId `
             -VcenterNamespaceManagementSupervisorsSupervisorServicesCreateSpec $installSpec | Out-Null
     }
-} elseif ($onSupervisor.Version -eq $version -or $onSupervisor.CurrentVersion -eq $version) {
+} elseif ($onSupervisor.CurrentVersion -eq $version) {
     Write-Host "[$ServiceName] Version $version already installed on supervisor — skipping."
 } else {
-    Write-Host "[$ServiceName] DEBUG onSupervisor properties: $($onSupervisor | ConvertTo-Json -Depth 2)"
-    Write-Host "[$ServiceName] Already on supervisor — updating to $version..."
+    Write-Host "[$ServiceName] Already on supervisor — updating from $($onSupervisor.CurrentVersion) to $version..."
     $setSpec = Initialize-VcenterNamespaceManagementSupervisorsSupervisorServicesSetSpec -Version $version
     Invoke-VcenterNamespaceManagementSupervisorsSupervisorServicesSet `
         -Supervisor $supervisorId `
