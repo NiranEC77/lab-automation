@@ -284,39 +284,7 @@ echo "Setting supervisor-ctx as current context..."
 vcf context use supervisor-ctx 2>/dev/null || true
 
 
-# --- 9. Content Library SSL Fix (pre-flight) ---
-echo ""
-echo "Patching Content Library SSL Certificates to prevent deployment errors..."
-
-set +e  # Best-effort fixes — don't crash if vCenter API hiccups
-SID=$(curl -k -s -X POST -u "$VCENTER_USER:$LAB_PASS" "https://$VCENTER_SERVER/rest/com/vmware/cis/session" | jq -r .value)
-
-LIB_IDS=$(curl -k -s -X GET -H "vmware-api-session-id: $SID" "https://$VCENTER_SERVER/api/content/subscribed-library" | jq -r '.[]' 2>/dev/null)
-
-for LIB_ID in $LIB_IDS; do
-    LIB_INFO=$(curl -k -s -X GET -H "vmware-api-session-id: $SID" "https://$VCENTER_SERVER/api/content/subscribed-library/$LIB_ID" 2>/dev/null)
-    URL=$(echo "$LIB_INFO" | jq -r '.subscription_info.subscription_url // empty' 2>/dev/null)
-    
-    if [[ "$URL" == https* ]]; then
-        HOST=$(echo "$URL" | awk -F/ '{print $3}')
-        THUMBPRINT=$(echo -n | openssl s_client -connect ${HOST}:443 2>/dev/null | openssl x509 -noout -fingerprint -sha1 | cut -d'=' -f2)
-        
-        if [ ! -z "$THUMBPRINT" ]; then
-            echo "-> Trusting SSL thumbprint for $HOST ($THUMBPRINT)..."
-            curl -k -s -X PATCH -H "vmware-api-session-id: $SID" -H "Content-Type: application/json" \
-              -d "{\"subscription_info\": {\"ssl_thumbprint\": \"$THUMBPRINT\"}}" \
-              "https://$VCENTER_SERVER/api/content/subscribed-library/$LIB_ID"
-              
-            echo "-> Forcing sync for library $LIB_ID..."
-            curl -k -s -X POST -H "vmware-api-session-id: $SID" "https://$VCENTER_SERVER/api/content/subscribed-library/$LIB_ID?action=sync"
-        fi
-    fi
-done
-echo "✅ Content Library SSL fix applied."
-set -e
-
-
-# --- 10. Update Content Library Subscription URL ---
+# --- 9. Update Content Library Subscription URL ---
 CONTENT_LIBRARY_NAME="Kubernetes Service Content Library"
 CONTENT_LIBRARY_URL="https://wp-content.vmware.com/v2/latest/lib.json"
 
