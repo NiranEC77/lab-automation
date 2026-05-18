@@ -37,7 +37,12 @@ try {
     Write-Host "✅ '$LibraryName' subscription URL updated and sync triggered."
 }
 catch {
-    Write-Error "Failed to update Content Library '$LibraryName': $_"
+    Write-Host "ERROR: $_" -ForegroundColor Red
+    $inner = $_.Exception
+    while ($inner) {
+        Write-Host "  → $($inner.Message)" -ForegroundColor Red
+        $inner = $inner.InnerException
+    }
     exit 1
 }
 finally {
