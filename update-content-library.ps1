@@ -30,12 +30,13 @@ try {
     }
 
     Write-Host "Updating subscription URL for '$LibraryName'..."
-    Write-Host "  Old URL: $($library.SubscriptionUrl)"
+    Write-Host "  Old URL: $($library.SubscriptionUri)"
     Write-Host "  New URL: $NewSubscriptionUrl"
-    Set-ContentLibrary -ContentLibrary $library -SubscriptionUrl $NewSubscriptionUrl | Out-Null
+
+    Set-ContentLibrary -SubscribedContentLibrary $library -SubscriptionUri $NewSubscriptionUrl | Out-Null
 
     Write-Host "Forcing synchronization of '$LibraryName'..."
-    Sync-ContentLibrary -ContentLibrary $library | Out-Null
+    Sync-ContentLibrary -SubscribedContentLibrary $library | Out-Null
 
     Write-Host "✅ '$LibraryName' subscription URL updated and sync triggered."
 }
