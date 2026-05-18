@@ -106,12 +106,12 @@ function Wait-ForPrecheckSuccess {
         } catch {}
         if ($result) {
             Write-Host "[$ServiceName] Precheck status: $($result.Status)"
-            if ($result.Status -eq 'SUCCESS') {
+            if ($result.Status -eq 'COMPATIBLE') {
                 Write-Host "[$ServiceName] Precheck passed."
                 return
             }
-            if ($result.Status -eq 'FAILED') {
-                throw "[$ServiceName] Precheck failed: $($result.Errors | Out-String)"
+            if ($result.Status -eq 'INCOMPATIBLE') {
+                throw "[$ServiceName] Precheck failed (INCOMPATIBLE): $($result.Errors | Out-String)"
             }
         } else {
             Write-Host "[$ServiceName] Precheck result not yet available, waiting..."
