@@ -93,9 +93,17 @@ function Invoke-SupervisorServicePrecheck {
 }
 
 function Wait-ForPrecheckSuccess {
-    # Status values: SUCCESS, FAILED; absence means still running — poll until terminal.
-    param([string]$SupervisorId, [string]$ServiceName, [string]$Version, [int]$TimeoutSec = 300)
-    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    # Status values: COMPATIBLE, INCOMPATIBLE; absence means result not yet available.
+    # Re-initiates the precheck if no result is returned after $NoResultRetryAfter polls.
+    param(
+        [string]$SupervisorId,
+        [string]$ServiceName,
+        [string]$Version,
+        [int]$TimeoutSec = 300,
+        [int]$NoResultRetryAfter = 3
+    )
+    $deadline      = (Get-Date).AddSeconds($TimeoutSec)
+    $emptyCount    = 0
     while ((Get-Date) -lt $deadline) {
         $result = $null
         try {
@@ -105,16 +113,24 @@ function Wait-ForPrecheckSuccess {
                 -TargetVersion $Version
         } catch {}
         if ($result) {
-            Write-Host "[$ServiceName] Precheck status: $($result.Status)"
-            if ($result.Status -eq 'COMPATIBLE') {
+            $emptyCount = 0
+            $statusStr = $result.Status.ToString()
+            Write-Host "[$ServiceName] Precheck status: $statusStr"
+            if ($statusStr -eq 'COMPATIBLE') {
                 Write-Host "[$ServiceName] Precheck passed."
                 return
             }
-            if ($result.Status -eq 'INCOMPATIBLE') {
+            if ($statusStr -eq 'INCOMPATIBLE') {
                 throw "[$ServiceName] Precheck failed (INCOMPATIBLE): $($result.Errors | Out-String)"
             }
         } else {
-            Write-Host "[$ServiceName] Precheck result not yet available, waiting..."
+            $emptyCount++
+            Write-Host "[$ServiceName] Precheck result not yet available, waiting... ($emptyCount/$NoResultRetryAfter)"
+            if ($emptyCount -ge $NoResultRetryAfter) {
+                Write-Host "[$ServiceName] No result after $emptyCount polls — re-initiating precheck..."
+                Invoke-SupervisorServicePrecheck -SupervisorId $SupervisorId -ServiceName $ServiceName -Version $Version
+                $emptyCount = 0
+            }
         }
         Start-Sleep -Seconds 15
     }
