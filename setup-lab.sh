@@ -313,7 +313,6 @@ argo_password       = "$LAB_PASS"
 storage_class_name      = "$STORAGE_POLICY"
 vks_storage_class       = "$STORAGE_CLASS"
 ns_storage_limit        = "$NS_STORAGE_LIMIT"
-argo_password       = "$LAB_PASS"
 EOF
 fi
 
