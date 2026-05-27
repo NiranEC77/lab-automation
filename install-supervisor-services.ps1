@@ -232,16 +232,26 @@ if ($null -eq $onSupervisor) {
             -Supervisor $supervisorId `
             -VcenterNamespaceManagementSupervisorsSupervisorServicesCreateSpec $installSpec | Out-Null
     }
-} elseif ($onSupervisor.CurrentVersion -eq $version) {
-    Write-Host "[$ServiceName] Version $version already installed on supervisor — skipping."
 } else {
+  # Clean the strings before casting to [semver]
+  # 1. -replace '^v',''   -> Removes a leading 'v' if present (e.g., 'v1.0')
+  # 2. -replace '\+.*$','' -> Removes the '+' and all build metadata after it
+  $cleanInstalled = $onSupervisor.CurrentVersion -replace '^v','' -replace '\+.*$',''
+  $cleanIncoming  = $version -replace '^v','' -replace '\+.*$',''
+
+  $installedSemVer = [semver]$cleanInstalled
+  $incomingSemVer  = [semver]$cleanIncoming
+
+  if ($incomingSemVer -le $installedSemVer) {
+    Write-Host "[$ServiceName] Incoming version ($version) is not newer than installed version ($($onSupervisor.CurrentVersion)) — skipping."
+  } else {
     Write-Host "[$ServiceName] Already on supervisor — updating from $($onSupervisor.CurrentVersion) to $version..."
     $setSpec = Initialize-VcenterNamespaceManagementSupervisorsSupervisorServicesSetSpec -Version $version
     Invoke-VcenterNamespaceManagementSupervisorsSupervisorServicesSet `
-        -Supervisor $supervisorId `
-        -SupervisorService $ServiceName `
-        -VcenterNamespaceManagementSupervisorsSupervisorServicesSetSpec $setSpec | Out-Null
+      -Supervisor $supervisorId `
+      -SupervisorService $ServiceName `
+      -VcenterNamespaceManagementSupervisorsSupervisorServicesSetSpec $setSpec | Out-Null
+  }
 }
-
 Write-Host "[$ServiceName] Done."
 Disconnect-VIServer -Confirm:$false | Out-Null
