@@ -116,12 +116,14 @@ function Wait-ForPrecheckSuccess {
             $emptyCount = 0
             $statusStr = $result.Status.ToString()
             Write-Host "[$ServiceName] Precheck status: $statusStr"
-            if ($statusStr -eq 'COMPATIBLE') {
+           if ($statusStr -eq 'COMPATIBLE') {
                 Write-Host "[$ServiceName] Precheck passed."
-                return
+                return $true
             }
             if ($statusStr -eq 'INCOMPATIBLE') {
-                throw "[$ServiceName] Precheck failed (INCOMPATIBLE): $($result.Errors | Out-String)"
+                # Use Write-Warning to log it in yellow without terminating the script
+                Write-Warning "[$ServiceName] Precheck failed (INCOMPATIBLE): $($result.Errors | Out-String)"
+                return $false
             }
         } else {
             $emptyCount++
@@ -199,8 +201,17 @@ if ($null -eq $existing) {
 
 # --- Precheck: must pass before install or upgrade ---
 Invoke-SupervisorServicePrecheck -SupervisorId $supervisorId -ServiceName $ServiceName -Version $version
-Wait-ForPrecheckSuccess -SupervisorId $supervisorId -ServiceName $ServiceName -Version $version
+$isCompatible = Wait-ForPrecheckSuccess -SupervisorId $supervisorId -ServiceName $ServiceName -Version $version
 
+if (-not $isCompatible) {
+    Write-Host "[$ServiceName] Skipping deployment on supervisor due to INCOMPATIBLE precheck status."
+    
+    # Clean up the vCenter connection before exiting the script
+    Disconnect-VIServer -Confirm:$false | Out-Null
+    return 
+}
+
+# --- Tier 2: Install or update on the Supervisor (new API) ---
 # --- Tier 2: Install or update on the Supervisor (new API) ---
 #
 # Spec differences vs. old ClusterSupervisorServices API:
