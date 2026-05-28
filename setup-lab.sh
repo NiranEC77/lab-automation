@@ -260,6 +260,12 @@ if [ -f "$TOKEN_FILE" ] && [ -f "$TFVARS_FILE" ]; then
     export VCF_CLI_VCFA_API_TOKEN
 else
     echo "Installing supervisor services via PowerCLI..."
+
+    cat << EOF > "$SVC_DIR/secret-store-service-config.yaml"
+statefulSet:
+  storageClassName: $STORAGE_CLASS
+EOF
+
     declare -A _SERVICES=(
         ["tkg.vsphere.vmware.com"]="$SVC_DIR/vks-upgrade.yaml"
         ["argocd-service.vsphere.vmware.com"]="$SVC_DIR/argocd-service.yaml"
