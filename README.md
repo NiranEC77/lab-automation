@@ -57,15 +57,17 @@ Choose this for the complete flow. Deploy runs **all prep steps first** (skippin
 * **Infrastructure CLIs:** Downloads and installs the latest stable versions of kubectl and Terraform.
 * **PowerShell & PowerCLI:** Installs PowerShell Core and VMware PowerCLI for supervisor service automation.
 
-### 2. Supervisor Service Installation
+### 2. Supervisor Configuration & Service Installation
+* **Size:** Sets the supervisor control plane size to `MEDIUM` via `configure-supervisor.ps1` before any services are installed. Skips if already at the target size.
+* **Service manifest:** The list of services to install is defined in `supervisor-services/services.yaml`. Each entry supports `enabled: true/false` and an optional `exclude_envs` list to skip installation on specific environments. To disable a service or add an env exclusion, edit that file — no script changes needed.
 * Upgrades VKS (Kubernetes Service).
 * Deploys the ArgoCD Supervisor Service.
 * Deploys the ArgoCD Attach Fling.
-* Deploys the Secret Store Service (with storage class config).
+* Deploys the Secret Store Service. Storage class config is generated dynamically from the selected environment's storage policy.
 * Deploys the Harbor Service (with lab password and storage class config).
 * Deploys the LCI Service (Local Consumption Interface).
-* Deploys the Supervisor Management Proxy Service for cluster Observability metrics into VCF Operations.
-* Uses `install-supervisor-services.ps1` with the VMware.Sdk.vSphere 13.5.0 (9.x) SDK. The script handles new registration, version deduplication, **compatibility precheck** (polls until `COMPATIBLE` before proceeding), and cluster install/upgrade automatically. YAML manifests live in `supervisor-services/`.
+* Deploys the Supervisor Management Proxy Service (skipped for the `9.1` environment where it is no longer required).
+* Uses `install-supervisor-services.ps1` with the VMware.Sdk.vSphere 13.5.0 (9.x) SDK. The script handles new registration, version deduplication, **compatibility precheck** (polls every 5 seconds, up to 10 minutes, until `COMPATIBLE` before proceeding), and cluster install/upgrade automatically.
 
 ### 3. Pimp the Terminal
 * **Zsh Integration:** Installs `zsh` and sets it as your default shell.
@@ -125,6 +127,7 @@ For the VKS cluster context, the script:
 | `ctx-lib.sh` | Shared library — environment picker, token management, VCFA context, and cluster context functions |
 | `ctx2.sh` | Standalone script to (re)configure the VKS cluster context without re-running full setup |
 | `install-supervisor-services.ps1` | PowerCLI script — supervisor service registration, precheck, install, and upgrade (SDK 9.x) |
+| `configure-supervisor.ps1` | PowerCLI script — sets supervisor control plane size (default `MEDIUM`) using SDK 9.x |
 | `vcfa-token.py` | Automated VCFA OAuth token generation |
 | `README.md` | This file |
 
@@ -132,12 +135,13 @@ For the VKS cluster context, the script:
 
 | File | Description |
 |------|-------------|
+| `services.yaml` | **Service manifest** — defines which supervisor services to install, with per-service `enabled` toggle and `exclude_envs` list |
 | `vks-upgrade.yaml` | VKS upgrade package YAML |
 | `argocd-service.yaml` | ArgoCD Supervisor Service package YAML |
 | `argo-attach.yaml` | ArgoCD Attach Fling package YAML |
 | `secret-store-service.yaml` | Secret Store Service package YAML |
-| `secret-store-service-config.yaml` | Secret Store Service install config (storage class) |
-| `supervisor-management-proxy-service.yaml` | Supervisor Management Proxy Service package YAML |
+| `secret-store-service-config.yaml` | Secret Store Service install config — generated at runtime from the environment's storage policy |
+| `supervisor-management-proxy-service.yaml` | Supervisor Management Proxy Service package YAML (not installed on `9.1` env) |
 | `harbor-service.yaml` | Harbor Service package YAML |
 | `harbor-service-config.yaml` | Harbor Service install config (Harbor FQDN, lab password, and storage class) |
 | `lci-service.yaml` | Local Consumption Interface Service package YAML |

@@ -1,0 +1,32 @@
+services:
+  - name: tkg.vsphere.vmware.com
+    yaml: vks-upgrade.yaml
+    enabled: true
+
+  - name: argocd-service.vsphere.vmware.com
+    yaml: argocd-service.yaml
+    enabled: true
+
+  - name: argocd-attach.fling.vsphere.vmware.com
+    yaml: argo-attach.yaml
+    enabled: true
+
+  - name: secret-store.vsphere.vmware.com
+    yaml: secret-store-service.yaml
+    config: secret-store-service-config.yaml
+    enabled: true
+
+  - name: supervisor-management-proxy.vmware.com
+    yaml: supervisor-management-proxy-service.yaml
+    enabled: true
+    exclude_envs:
+      - ss
+
+  - name: harbor.tanzu.vmware.com
+    yaml: harbor-service.yaml
+    config: harbor-service-config.yaml
+    enabled: true
+
+  - name: cci-ns.vmware.com
+    yaml: lci-service.yaml
+    enabled: true

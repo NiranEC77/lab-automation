@@ -101,6 +101,12 @@ if ! python3 -c "import requests" 2>/dev/null; then
         python3 -m pip install --break-system-packages requests 2>/dev/null || true
 fi
 
+if ! python3 -c "import yaml" 2>/dev/null; then
+    echo "Installing python3-yaml..."
+    echo "$LAB_PASS" | sudo -S apt-get install -y python3-yaml 2>/dev/null || \
+        python3 -m pip install --break-system-packages pyyaml 2>/dev/null || true
+fi
+
 if ! command -v pwsh &> /dev/null; then
     echo "Installing PowerShell..."
     curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | \
@@ -259,6 +265,14 @@ if [ -f "$TOKEN_FILE" ] && [ -f "$TFVARS_FILE" ]; then
     VCF_CLI_VCFA_API_TOKEN=$(cat "$TOKEN_FILE")
     export VCF_CLI_VCFA_API_TOKEN
 else
+    echo "Configuring supervisor size..."
+    pwsh -NonInteractive -File "$SCRIPT_DIR/configure-supervisor.ps1" \
+        -VCenterServer "$VCENTER_SERVER" \
+        -Username "$VCENTER_USER" \
+        -Password "$LAB_PASS" \
+        -ClusterName "$VCENTER_CLUSTER_NAME" \
+        -SizeHint "MEDIUM"
+
     echo "Installing supervisor services via PowerCLI..."
 
     cat << EOF > "$SVC_DIR/secret-store-service-config.yaml"
@@ -266,19 +280,24 @@ statefulSet:
   storageClassName: $STORAGE_CLASS
 EOF
 
-    declare -A _SERVICES=(
-        ["tkg.vsphere.vmware.com"]="$SVC_DIR/vks-upgrade.yaml"
-        ["argocd-service.vsphere.vmware.com"]="$SVC_DIR/argocd-service.yaml"
-        ["argocd-attach.fling.vsphere.vmware.com"]="$SVC_DIR/argo-attach.yaml"
-        ["secret-store.vsphere.vmware.com"]="$SVC_DIR/secret-store-service.yaml"
-        ["supervisor-management-proxy.vmware.com"]="$SVC_DIR/supervisor-management-proxy-service.yaml"
-        ["harbor.tanzu.vmware.com"]="$SVC_DIR/harbor-service.yaml"
-        ["cci-ns.vmware.com"]="$SVC_DIR/lci-service.yaml"
-    )
-    declare -A _SERVICE_CONFIGS=(
-        ["secret-store.vsphere.vmware.com"]="$SVC_DIR/secret-store-service-config.yaml"
-        ["harbor.tanzu.vmware.com"]="$SVC_DIR/harbor-service-config.yaml"
-    )
+    declare -A _SERVICES
+    declare -A _SERVICE_CONFIGS
+    while IFS='|' read -r _svc _yaml _cfg; do
+        _SERVICES["$_svc"]="$SVC_DIR/$_yaml"
+        [[ "$_cfg" != "-" ]] && _SERVICE_CONFIGS["$_svc"]="$SVC_DIR/$_cfg"
+    done < <(python3 - "$SVC_DIR/services.yaml" "$LAB_ENV" <<'PYEOF'
+import sys, yaml
+path, env = sys.argv[1], sys.argv[2]
+with open(path) as f:
+    data = yaml.safe_load(f)
+for svc in data.get('services', []):
+    if not svc.get('enabled', True):
+        continue
+    if env in svc.get('exclude_envs', []):
+        continue
+    print(f"{svc['name']}|{svc['yaml']}|{svc.get('config', '-')}")
+PYEOF
+)
 
     for _SVC in "${!_SERVICES[@]}"; do
         _ARGS=(

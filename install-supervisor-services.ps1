@@ -99,7 +99,7 @@ function Wait-ForPrecheckSuccess {
         [string]$SupervisorId,
         [string]$ServiceName,
         [string]$Version,
-        [int]$TimeoutSec = 300,
+        [int]$TimeoutSec = 600,
         [int]$NoResultRetryAfter = 3
     )
     $deadline      = (Get-Date).AddSeconds($TimeoutSec)
@@ -134,7 +134,7 @@ function Wait-ForPrecheckSuccess {
                 $emptyCount = 0
             }
         }
-        Start-Sleep -Seconds 15
+        Start-Sleep -Seconds 5
     }
     throw "[$ServiceName] Timed out waiting for precheck to complete."
 }
