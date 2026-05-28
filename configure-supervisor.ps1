@@ -16,6 +16,10 @@ $ConfirmPreference     = 'None'
 #   Current size: response.Size.Identifier
 #   Update spec:  Initialize-...-SizeUpdateSpec -Identifier <size>
 #                 Initialize-...-UpdateSpec      -Size <sizeSpec>
+#
+# Supervisor state polling
+#   Invoke-GetSupervisorNamespaceManagementSummary  GET /supervisors/{sup}/summary
+#   ConfigStatus enum: CONFIGURING | RUNNING | ERROR | REMOVING
 # ---------------------------------------------------------------------------
 
 $sdkVersion = '13.5.0.25380678'
@@ -25,6 +29,30 @@ if (-not (Get-Module -ListAvailable -Name VMware.Sdk.vSphere | Where-Object { $_
     Write-Host "Module installed."
 }
 Import-Module VMware.Sdk.vSphere -RequiredVersion $sdkVersion -Force
+
+function Wait-ForSupervisorRunning {
+    param(
+        [string]$SupervisorId,
+        [int]$TimeoutSec = 1200,
+        [int]$PollIntervalSec = 15
+    )
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    while ((Get-Date) -lt $deadline) {
+        $summary = $null
+        try { $summary = Invoke-GetSupervisorNamespaceManagementSummary -Supervisor $SupervisorId } catch {}
+        $status = $summary.ConfigStatus.ToString()
+        Write-Host "Supervisor config status: $status"
+        if ($status -eq 'RUNNING') {
+            Write-Host "Supervisor is RUNNING."
+            return
+        }
+        if ($status -eq 'ERROR') {
+            throw "Supervisor entered ERROR state. Check vCenter for details."
+        }
+        Start-Sleep -Seconds $PollIntervalSec
+    }
+    throw "Timed out waiting for supervisor to reach RUNNING state."
+}
 
 function Get-SupervisorId {
     param([string]$ClusterName)
@@ -63,5 +91,6 @@ Invoke-VcenterNamespaceManagementSupervisorsControlPlaneSettingsUpdate `
     -Supervisor $supervisorId `
     -VcenterNamespaceManagementSupervisorsControlPlaneSettingsUpdateSpec $updateSpec | Out-Null
 
-Write-Host "Supervisor size updated to $SizeHint."
+Write-Host "Supervisor size updated to $SizeHint. Waiting for RUNNING state..."
+Wait-ForSupervisorRunning -SupervisorId $supervisorId
 Disconnect-VIServer -Confirm:$false | Out-Null
