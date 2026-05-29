@@ -8,6 +8,7 @@
 - `python3-yaml` prereq install check added to `setup-lab.sh`
 
 ### Changed
+- `configure-supervisor.ps1` — added 9.0.x fallback path using `Invoke-GetClusterNamespaceManagement` / `Invoke-UpdateClusterNamespaceManagement` with `SizeHint` on the update spec; `Wait-ForSupervisorRunning` now accepts either `SupervisorId` (9.1+ summary API) or `ClusterMoRef` (9.0.x cluster info API) for state polling
 - `install-supervisor-services.ps1` — supervisor service create retry pattern broadened to catch transient `500 Internal Server Error` / `internal_server_error` responses in addition to `package not found`; retry count increased 6 → 10, delay increased 20s → 30s
 - `setup-lab.sh` — `secret-store-service-config.yaml` now generated at runtime using the environment's `$STORAGE_CLASS` variable instead of being hardcoded to the `adv` env value
 - `setup-lab.sh` — supervisor service list now parsed from `services.yaml` via Python inline heredoc; `configure-supervisor.ps1` called before service install loop
