@@ -8,6 +8,7 @@
 - `python3-yaml` prereq install check added to `setup-lab.sh`
 
 ### Changed
+- `install-supervisor-services.ps1` — supervisor service create retry pattern broadened to catch transient `500 Internal Server Error` / `internal_server_error` responses in addition to `package not found`; retry count increased 6 → 10, delay increased 20s → 30s
 - `setup-lab.sh` — `secret-store-service-config.yaml` now generated at runtime using the environment's `$STORAGE_CLASS` variable instead of being hardcoded to the `adv` env value
 - `setup-lab.sh` — supervisor service list now parsed from `services.yaml` via Python inline heredoc; `configure-supervisor.ps1` called before service install loop
 - `install-supervisor-services.ps1` — precheck timeout extended 300s → 600s; poll interval reduced 15s → 5s

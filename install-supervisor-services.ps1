@@ -236,8 +236,10 @@ if ($null -eq $onSupervisor) {
         )
     }
     $installSpec = Initialize-VcenterNamespaceManagementSupervisorsSupervisorServicesCreateSpec @installParams
-    Invoke-WithRetry -Context "[$ServiceName] Carvel package not yet on supervisor." `
-                     -RetryPattern 'package\.data\.packaging\.carvel\.dev.*not found' `
+    Invoke-WithRetry -Context "[$ServiceName] Transient error on supervisor service create — retrying." `
+                     -RetryPattern 'package\.data\.packaging\.carvel\.dev.*not found|500.*[Ii]nternal [Ss]erver [Ee]rror|internal_server_error' `
+                     -RetryCount 10 `
+                     -RetryDelaySec 30 `
                      -Action {
         Invoke-VcenterNamespaceManagementSupervisorsSupervisorServicesCreate `
             -Supervisor $supervisorId `
