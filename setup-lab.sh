@@ -126,7 +126,7 @@ fi
 
 if ! command -v vcf &> /dev/null; then
     echo "Installing VCF CLI..."
-    curl -kfsSLO "https://10.1.8.132/wcp/vcf-cli/v9.1.0.0/25296329/linux/amd64/vcf-cli.tar.gz" 
+    curl -kfsSLO "https://$SUPERVISOR_ENDPOINT/wcp/vcf-cli/v9.1.0.0/25296329/linux/amd64/vcf-cli.tar.gz" 
     tar -xf vcf-cli.tar.gz
     echo "$LAB_PASS" | sudo -S install vcf-cli-linux_amd64 /usr/local/bin/vcf
     rm -f vcf-cli.tar.gz vcf-cli-linux_amd64
