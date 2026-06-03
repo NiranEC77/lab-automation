@@ -135,8 +135,12 @@ if ! command -v vcf &> /dev/null || [ "$LAB_ENV" = "ss" ]; then
     fi
     curl -kfsSLO --retry 5 --retry-delay 5 --retry-all-errors "$VCF_CLI_URL"
     tar -xf vcf-cli.tar.gz
-    echo "$LAB_PASS" | sudo -S install vcf-cli-linux_amd64 /usr/local/bin/vcf
+    # Install over the path vcf currently resolves to (e.g. stale /usr/bin/vcf
+    # from the lab image), else default to /usr/local/bin/vcf.
+    VCF_TARGET="$(command -v vcf || echo /usr/local/bin/vcf)"
+    echo "$LAB_PASS" | sudo -S install vcf-cli-linux_amd64 "$VCF_TARGET"
     rm -f vcf-cli.tar.gz vcf-cli-linux_amd64
+    hash -r
 fi
 
 if ! command -v argocd &> /dev/null; then
