@@ -326,6 +326,11 @@ PYEOF
     cd "$REPO_DIR/argo-e2e"
 
     echo "Injecting static and dynamic variables..."
+    if [ "$LAB_ENV" = "ss" ]; then
+        BOOTSTRAP_PATH="./cluster-bootstrap/fieldlabs-9.1"
+    else
+        BOOTSTRAP_PATH="./cluster-bootstrap/basic"
+    fi
     cat << EOF > terraform.tfvars
 region_name         = "$REGION_NAME"
 vpc_name            = "$VPC_NAME"
@@ -335,6 +340,7 @@ vcfa_url            = "https://auto-a.site-a.vcf.lab"
 namespace           = "e2e-ns"
 cluster             = "$CLUSTER_NAME"
 bootstrap_revision  = "2.0.0"
+bootstrap_path      = "$BOOTSTRAP_PATH"
 k8s_version         = "$K8S_VERSION"
 vcfa_refresh_token  = "$VCF_CLI_VCFA_API_TOKEN"
 cluster_class       = "builtin-generic-v3.6.0"
