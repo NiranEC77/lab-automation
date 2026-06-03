@@ -133,7 +133,7 @@ if ! command -v vcf &> /dev/null || [ "$LAB_ENV" = "ss" ]; then
     else
         VCF_CLI_URL="https://packages.broadcom.com/artifactory/vcf-distro/vcf-cli/linux/amd64/v9.0.2/vcf-cli.tar.gz"
     fi
-    curl -kfsSLO "$VCF_CLI_URL"
+    curl -kfsSLO --retry 5 --retry-delay 5 --retry-all-errors "$VCF_CLI_URL"
     tar -xf vcf-cli.tar.gz
     echo "$LAB_PASS" | sudo -S install vcf-cli-linux_amd64 /usr/local/bin/vcf
     rm -f vcf-cli.tar.gz vcf-cli-linux_amd64
