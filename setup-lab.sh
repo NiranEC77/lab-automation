@@ -124,7 +124,9 @@ if ! pwsh -NonInteractive -Command "Get-Module -ListAvailable VMware.PowerCLI" 2
         "Install-Module VMware.PowerCLI -Scope CurrentUser -Force -SkipPublisherCheck -AllowClobber"
 fi
 
-if ! command -v vcf &> /dev/null; then
+# For ss (9.1) always (re)install — lab image may ship stale 9.0.2 vcf on PATH,
+# which would otherwise skip the install and leave the wrong CLI version.
+if ! command -v vcf &> /dev/null || [ "$LAB_ENV" = "ss" ]; then
     echo "Installing VCF CLI..."
     if [ "$LAB_ENV" = "ss" ]; then
         VCF_CLI_URL="https://$SUPERVISOR_ENDPOINT/wcp/vcf-cli/v9.1.0.0/25296329/linux/amd64/vcf-cli.tar.gz"
