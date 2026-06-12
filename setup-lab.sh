@@ -197,7 +197,7 @@ if [ -n "$SVC_BUNDLE" ]; then
     echo "Updating supervisor services from: $(basename "$SVC_BUNDLE")"
 
     TEMP_EXTRACT=$(mktemp -d)
-    tar -xzf "$SVC_BUNDLE" -C "$TEMP_EXTRACT"
+    tar -xzf "$SVC_BUNDLE" -C "$TEMP_EXTRACT" 2>/dev/null
 
     # Find the directory that contains yaml files — handles any nesting depth
     SRC_DIR=$(find "$TEMP_EXTRACT" -name "*.yaml" -not -name "services.yaml" | head -1 | xargs dirname 2>/dev/null)
@@ -208,6 +208,7 @@ if [ -n "$SVC_BUNDLE" ]; then
     else
         # Copy bundle contents into SVC_DIR without overwriting existing files.
         # Repo-managed files (e.g. argo-attach.yml) take precedence over bundle versions.
+        find "$SRC_DIR" -mindepth 1 -maxdepth 1 -not -name "services.yaml" -exec cp -r --update=none {} "$SVC_DIR/" \; 2>/dev/null || \
         find "$SRC_DIR" -mindepth 1 -maxdepth 1 -not -name "services.yaml" -exec cp -rn {} "$SVC_DIR/" \;
     fi
 
