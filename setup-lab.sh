@@ -332,34 +332,28 @@ pwsh -NonInteractive -File "$SCRIPT_DIR/update-content-library.ps1" \
 VCFA_CERT_PATH="$LAB_DIR/vcfa_chain.pem"
 
 
-# --- 12. Manual Intervention & Token Capture ---
-# Skip if token and tfvars already exist from a previous prep run
-if [ -f "$TOKEN_FILE" ] && [ -f "$TFVARS_FILE" ]; then
-    echo "✅ Previous prep detected — token and terraform.tfvars already exist. Skipping manual steps..."
-    VCF_CLI_VCFA_API_TOKEN=$(cat "$TOKEN_FILE")
-    export VCF_CLI_VCFA_API_TOKEN
-else
-    echo "Configuring supervisor size..."
-    pwsh -NonInteractive -File "$SCRIPT_DIR/configure-supervisor.ps1" \
-        -VCenterServer "$VCENTER_SERVER" \
-        -Username "$VCENTER_USER" \
-        -Password "$LAB_PASS" \
-        -ClusterName "$VCENTER_CLUSTER_NAME" \
-        -SizeHint "MEDIUM"
+# --- 12. Install Supervisor Services ---
+echo "Configuring supervisor size..."
+pwsh -NonInteractive -File "$SCRIPT_DIR/configure-supervisor.ps1" \
+    -VCenterServer "$VCENTER_SERVER" \
+    -Username "$VCENTER_USER" \
+    -Password "$LAB_PASS" \
+    -ClusterName "$VCENTER_CLUSTER_NAME" \
+    -SizeHint "MEDIUM"
 
-    echo "Installing supervisor services via PowerCLI..."
+echo "Installing supervisor services via PowerCLI..."
 
-    cat << EOF > "$SVC_DIR/secret-store-service-config.yaml"
+cat << EOF > "$SVC_DIR/secret-store-service-config.yaml"
 statefulSet:
   storageClassName: $STORAGE_CLASS
 EOF
 
-    declare -A _SERVICES
-    declare -A _SERVICE_CONFIGS
-    while IFS='|' read -r _svc _yaml _cfg; do
-        _SERVICES["$_svc"]="$SVC_DIR/$_yaml"
-        [[ "$_cfg" != "-" ]] && _SERVICE_CONFIGS["$_svc"]="$SVC_DIR/$_cfg"
-    done < <(python3 - "$SVC_DIR/services.yaml" "$LAB_ENV" <<'PYEOF'
+declare -A _SERVICES
+declare -A _SERVICE_CONFIGS
+while IFS='|' read -r _svc _yaml _cfg; do
+    _SERVICES["$_svc"]="$SVC_DIR/$_yaml"
+    [[ "$_cfg" != "-" ]] && _SERVICE_CONFIGS["$_svc"]="$SVC_DIR/$_cfg"
+done < <(python3 - "$SVC_DIR/services.yaml" "$LAB_ENV" <<'PYEOF'
 import sys, yaml
 path, env = sys.argv[1], sys.argv[2]
 with open(path) as f:
@@ -373,21 +367,29 @@ for svc in data.get('services', []):
 PYEOF
 )
 
-    for _SVC in "${!_SERVICES[@]}"; do
-        _ARGS=(
-            -VCenterServer "$VCENTER_SERVER"
-            -Username "$VCENTER_USER"
-            -Password "$LAB_PASS"
-            -YamlPath "${_SERVICES[$_SVC]}"
-            -ServiceName "$_SVC"
-            -ClusterName "$VCENTER_CLUSTER_NAME"
-        )
-        if [[ -n "${_SERVICE_CONFIGS[$_SVC]+x}" ]]; then
-            _ARGS+=(-ConfigYamlPath "${_SERVICE_CONFIGS[$_SVC]}")
-        fi
-        pwsh -NonInteractive -File "$SCRIPT_DIR/install-supervisor-services.ps1" "${_ARGS[@]}"
-    done
+for _SVC in "${!_SERVICES[@]}"; do
+    _ARGS=(
+        -VCenterServer "$VCENTER_SERVER"
+        -Username "$VCENTER_USER"
+        -Password "$LAB_PASS"
+        -YamlPath "${_SERVICES[$_SVC]}"
+        -ServiceName "$_SVC"
+        -ClusterName "$VCENTER_CLUSTER_NAME"
+    )
+    if [[ -n "${_SERVICE_CONFIGS[$_SVC]+x}" ]]; then
+        _ARGS+=(-ConfigYamlPath "${_SERVICE_CONFIGS[$_SVC]}")
+    fi
+    pwsh -NonInteractive -File "$SCRIPT_DIR/install-supervisor-services.ps1" "${_ARGS[@]}"
+done
 
+
+# --- 12b. Token Capture & Terraform Vars ---
+# Skip if token and tfvars already exist from a previous prep run
+if [ -f "$TOKEN_FILE" ] && [ -f "$TFVARS_FILE" ]; then
+    echo "✅ Previous prep detected — token and terraform.tfvars already exist. Skipping manual steps..."
+    VCF_CLI_VCFA_API_TOKEN=$(cat "$TOKEN_FILE")
+    export VCF_CLI_VCFA_API_TOKEN
+else
     # --- Auto-generate VCFA API token ---
     echo "Generating VCFA API token automatically..."
     get_vcfa_token "$SCRIPT_DIR"
