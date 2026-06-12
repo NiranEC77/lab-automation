@@ -206,9 +206,9 @@ if [ -n "$SVC_BUNDLE" ]; then
         rm -rf "$TEMP_EXTRACT"
         SVC_BUNDLE=""
     else
-        # Copy bundle contents over existing files, skipping any services.yaml from the bundle.
-        # Files already in SVC_DIR but not in the bundle (e.g. argo-attach.yml) are preserved.
-        find "$SRC_DIR" -mindepth 1 -maxdepth 1 -not -name "services.yaml" -exec cp -r {} "$SVC_DIR/" \;
+        # Copy bundle contents into SVC_DIR without overwriting existing files.
+        # Repo-managed files (e.g. argo-attach.yml) take precedence over bundle versions.
+        find "$SRC_DIR" -mindepth 1 -maxdepth 1 -not -name "services.yaml" -exec cp -rn {} "$SVC_DIR/" \;
     fi
 
     rm -rf "$TEMP_EXTRACT"
