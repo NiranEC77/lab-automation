@@ -199,22 +199,27 @@ if [ -n "$SVC_BUNDLE" ]; then
     TEMP_EXTRACT=$(mktemp -d)
     tar -xzf "$SVC_BUNDLE" -C "$TEMP_EXTRACT"
 
-    # Descend into single top-level wrapper dir if present
-    TOP_COUNT=$(find "$TEMP_EXTRACT" -mindepth 1 -maxdepth 1 | wc -l)
-    if [ "$TOP_COUNT" -eq 1 ] && [ -d "$(find "$TEMP_EXTRACT" -mindepth 1 -maxdepth 1)" ]; then
-        SRC_DIR=$(find "$TEMP_EXTRACT" -mindepth 1 -maxdepth 1)
+    echo "Bundle contents:"
+    find "$TEMP_EXTRACT" -mindepth 1 -maxdepth 3 | sort
+
+    # Find the directory that contains yaml files — handles any nesting depth
+    SRC_DIR=$(find "$TEMP_EXTRACT" -name "*.yaml" -not -name "services.yaml" | head -1 | xargs dirname 2>/dev/null)
+    if [ -z "$SRC_DIR" ]; then
+        echo "WARNING: No yaml files found in bundle — skipping supervisor services update."
+        rm -rf "$TEMP_EXTRACT"
+        SVC_BUNDLE=""
     else
-        SRC_DIR="$TEMP_EXTRACT"
+        echo "Source directory in bundle: $SRC_DIR"
+
+        # Remove existing SVC_DIR contents except services.yaml
+        find "$SVC_DIR" -mindepth 1 -maxdepth 1 -not -name "services.yaml" -exec rm -rf {} \;
+
+        # Copy bundle contents, skipping any services.yaml that came in the bundle
+        find "$SRC_DIR" -mindepth 1 -maxdepth 1 -not -name "services.yaml" -exec cp -r {} "$SVC_DIR/" \;
     fi
 
-    # Remove existing SVC_DIR contents except services.yaml
-    find "$SVC_DIR" -mindepth 1 -maxdepth 1 -not -name "services.yaml" -exec rm -rf {} \;
-
-    # Copy bundle contents, skipping any services.yaml that came in the bundle
-    find "$SRC_DIR" -mindepth 1 -maxdepth 1 -not -name "services.yaml" -exec cp -r {} "$SVC_DIR/" \;
-
     rm -rf "$TEMP_EXTRACT"
-    echo "Supervisor services updated."
+    [ -n "$SVC_BUNDLE" ] && echo "Supervisor services updated." && echo "SVC_DIR contents:" && ls "$SVC_DIR/"
 else
     echo "WARNING: No supervisor services bundle found in $DOWNLOADS_DIR — skipping."
 fi
