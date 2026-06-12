@@ -199,9 +199,6 @@ if [ -n "$SVC_BUNDLE" ]; then
     TEMP_EXTRACT=$(mktemp -d)
     tar -xzf "$SVC_BUNDLE" -C "$TEMP_EXTRACT"
 
-    echo "Bundle contents:"
-    find "$TEMP_EXTRACT" -mindepth 1 -maxdepth 3 | sort
-
     # Find the directory that contains yaml files — handles any nesting depth
     SRC_DIR=$(find "$TEMP_EXTRACT" -name "*.yaml" -not -name "services.yaml" | head -1 | xargs dirname 2>/dev/null)
     if [ -z "$SRC_DIR" ]; then
@@ -209,8 +206,6 @@ if [ -n "$SVC_BUNDLE" ]; then
         rm -rf "$TEMP_EXTRACT"
         SVC_BUNDLE=""
     else
-        echo "Source directory in bundle: $SRC_DIR"
-
         # Remove existing SVC_DIR contents except services.yaml
         find "$SVC_DIR" -mindepth 1 -maxdepth 1 -not -name "services.yaml" -exec rm -rf {} \;
 
@@ -219,7 +214,7 @@ if [ -n "$SVC_BUNDLE" ]; then
     fi
 
     rm -rf "$TEMP_EXTRACT"
-    [ -n "$SVC_BUNDLE" ] && echo "Supervisor services updated." && echo "SVC_DIR contents:" && ls "$SVC_DIR/"
+    [ -n "$SVC_BUNDLE" ] && echo "Supervisor services updated."
 else
     echo "WARNING: No supervisor services bundle found in $DOWNLOADS_DIR — skipping."
 fi
