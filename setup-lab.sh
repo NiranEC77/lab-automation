@@ -69,35 +69,6 @@ K8S_VERSION="v1.35.2+vmware.1"
 # --- 2. Install Supervisor Services ---
 
 
-# --- 3c. Unpack Supervisor Services Bundle ---
-SVC_BUNDLE=$(find "$DOWNLOADS_DIR" -name "*.tar.gz" -not -name "VCF-Consumption-CLI-PluginBundle*" | sort | tail -1)
-if [ -n "$SVC_BUNDLE" ]; then
-    echo "Updating supervisor services from: $(basename "$SVC_BUNDLE")"
-
-    TEMP_EXTRACT=$(mktemp -d)
-    tar -xzf "$SVC_BUNDLE" -C "$TEMP_EXTRACT"
-
-    # Descend into single top-level wrapper dir if present
-    TOP_COUNT=$(find "$TEMP_EXTRACT" -mindepth 1 -maxdepth 1 | wc -l)
-    if [ "$TOP_COUNT" -eq 1 ] && [ -d "$(find "$TEMP_EXTRACT" -mindepth 1 -maxdepth 1)" ]; then
-        SRC_DIR=$(find "$TEMP_EXTRACT" -mindepth 1 -maxdepth 1)
-    else
-        SRC_DIR="$TEMP_EXTRACT"
-    fi
-
-    # Remove existing SVC_DIR contents except services.yaml
-    find "$SVC_DIR" -mindepth 1 -maxdepth 1 -not -name "services.yaml" -exec rm -rf {} \;
-
-    # Copy bundle contents, skipping any services.yaml that came in the bundle
-    find "$SRC_DIR" -mindepth 1 -maxdepth 1 -not -name "services.yaml" -exec cp -r {} "$SVC_DIR/" \;
-
-    rm -rf "$TEMP_EXTRACT"
-    echo "Supervisor services updated."
-else
-    echo "WARNING: No supervisor services bundle found in $DOWNLOADS_DIR — skipping."
-fi
-
-
 # --- 3. Install CLIs & Prerequisites ---
 echo "Checking prerequisites..."
 
@@ -218,6 +189,35 @@ python3 "$SCRIPT_DIR/download-box.py" \
     --password "$BOX_PASS" \
     --output "$DOWNLOADS_DIR" \
     "${BOX_FILES[@]}"
+
+
+# --- 3c. Unpack Supervisor Services Bundle ---
+SVC_BUNDLE=$(find "$DOWNLOADS_DIR" -name "*.tar.gz" -not -name "VCF-Consumption-CLI-PluginBundle*" | sort | tail -1)
+if [ -n "$SVC_BUNDLE" ]; then
+    echo "Updating supervisor services from: $(basename "$SVC_BUNDLE")"
+
+    TEMP_EXTRACT=$(mktemp -d)
+    tar -xzf "$SVC_BUNDLE" -C "$TEMP_EXTRACT"
+
+    # Descend into single top-level wrapper dir if present
+    TOP_COUNT=$(find "$TEMP_EXTRACT" -mindepth 1 -maxdepth 1 | wc -l)
+    if [ "$TOP_COUNT" -eq 1 ] && [ -d "$(find "$TEMP_EXTRACT" -mindepth 1 -maxdepth 1)" ]; then
+        SRC_DIR=$(find "$TEMP_EXTRACT" -mindepth 1 -maxdepth 1)
+    else
+        SRC_DIR="$TEMP_EXTRACT"
+    fi
+
+    # Remove existing SVC_DIR contents except services.yaml
+    find "$SVC_DIR" -mindepth 1 -maxdepth 1 -not -name "services.yaml" -exec rm -rf {} \;
+
+    # Copy bundle contents, skipping any services.yaml that came in the bundle
+    find "$SRC_DIR" -mindepth 1 -maxdepth 1 -not -name "services.yaml" -exec cp -r {} "$SVC_DIR/" \;
+
+    rm -rf "$TEMP_EXTRACT"
+    echo "Supervisor services updated."
+else
+    echo "WARNING: No supervisor services bundle found in $DOWNLOADS_DIR — skipping."
+fi
 
 
 # --- 4. Setup Zsh & Oh My Zsh ---
