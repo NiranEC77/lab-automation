@@ -206,10 +206,8 @@ if [ -n "$SVC_BUNDLE" ]; then
         rm -rf "$TEMP_EXTRACT"
         SVC_BUNDLE=""
     else
-        # Remove existing SVC_DIR contents except services.yaml
-        find "$SVC_DIR" -mindepth 1 -maxdepth 1 -not -name "services.yaml" -exec rm -rf {} \;
-
-        # Copy bundle contents, skipping any services.yaml that came in the bundle
+        # Copy bundle contents over existing files, skipping any services.yaml from the bundle.
+        # Files already in SVC_DIR but not in the bundle (e.g. argo-attach.yml) are preserved.
         find "$SRC_DIR" -mindepth 1 -maxdepth 1 -not -name "services.yaml" -exec cp -r {} "$SVC_DIR/" \;
     fi
 
