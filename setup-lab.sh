@@ -192,7 +192,7 @@ python3 "$SCRIPT_DIR/download-box.py" \
 
 
 # --- 3c. Unpack Supervisor Services Bundle ---
-SVC_BUNDLE=$(find "$DOWNLOADS_DIR" -name "*.tar.gz" -not -name "VCF-Consumption-CLI-PluginBundle*" | sort | tail -1)
+SVC_BUNDLE=$(find "$DOWNLOADS_DIR" -name "*.tar.gz" -not -name "VCF-Consumption-CLI-PluginBundle*" -printf "%T@ %p\n" 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
 if [ -n "$SVC_BUNDLE" ]; then
     echo "Updating supervisor services from: $(basename "$SVC_BUNDLE")"
 
@@ -290,7 +290,7 @@ vcf telemetry update --opted-out 2>/dev/null || true
 
 # --- 8b. Install VCF CLI Plugin Bundle (ss/9.1 only) ---
 if [ "$LAB_ENV" = "ss" ]; then
-    PLUGIN_BUNDLE=$(find "$DOWNLOADS_DIR" -name "VCF-Consumption-CLI-PluginBundle*.tar.gz" | sort | tail -1)
+    PLUGIN_BUNDLE=$(find "$DOWNLOADS_DIR" -name "VCF-Consumption-CLI-PluginBundle*.tar.gz" -printf "%T@ %p\n" 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
     if [ -n "$PLUGIN_BUNDLE" ]; then
         echo "Installing VCF CLI plugins from local bundle: $PLUGIN_BUNDLE"
         BUNDLE_EXTRACT_DIR="$DOWNLOADS_DIR/vcf-plugin-bundle"
