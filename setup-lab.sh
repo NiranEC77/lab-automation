@@ -46,10 +46,15 @@ echo "Verifying folder structure..."
 LAB_DIR="$HOME/field-lab"
 REPO_DIR="$LAB_DIR/vcfa-terraform-examples"
 DESKTOP_DIR="$HOME/Desktop"
+DOWNLOADS_DIR="$LAB_DIR/downloads"
 CLUSTER_NAME="e2e-cls01"
 
 mkdir -p "$LAB_DIR"
 mkdir -p "$DESKTOP_DIR"
+mkdir -p "$DOWNLOADS_DIR"
+
+read -s -p "Enter Box shared link password: " BOX_PASS
+echo ""
 
 SVC_DIR="$SCRIPT_DIR/supervisor-services"
 VCENTER_SERVER="vc-wld01-a.site-a.vcf.lab"
@@ -170,6 +175,50 @@ if ! command -v terraform &> /dev/null; then
 fi
 
 
+# --- 3b. Download Box Files ---
+# Password-protected Box shared file links (same password for all).
+# Add/remove entries as new files are available.
+BOX_FILES=(
+    "https://ent.box.com/s/bzqcj8bbgzheoec3chi59b46tevi8ptq"  # VCF CLI 9.1 plugin bundle
+    "https://ent.box.com/s/xfn45z5ykisj1fy3mya2arbuzvm68q2k"  # Supervisor services bundle
+    # "https://ent.box.com/s/NEXT_FILE_HASH"
+)
+
+echo "Downloading files from Box..."
+python3 "$SCRIPT_DIR/download-box.py" \
+    --password "$BOX_PASS" \
+    --output "$DOWNLOADS_DIR" \
+    "${BOX_FILES[@]}"
+
+
+# --- 3c. Unpack Supervisor Services Bundle ---
+SVC_BUNDLE=$(find "$DOWNLOADS_DIR" -name "*.tar.gz" -not -name "VCF-Consumption-CLI-PluginBundle*" -printf "%T@ %p\n" 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
+if [ -n "$SVC_BUNDLE" ]; then
+    echo "Updating supervisor services from: $(basename "$SVC_BUNDLE")"
+
+    TEMP_EXTRACT=$(mktemp -d)
+    tar -xzf "$SVC_BUNDLE" -C "$TEMP_EXTRACT" 2>/dev/null
+
+    # Find the directory that contains yaml files — handles any nesting depth
+    SRC_DIR=$(find "$TEMP_EXTRACT" -name "*.yaml" -not -name "services.yaml" | head -1 | xargs dirname 2>/dev/null)
+    if [ -z "$SRC_DIR" ]; then
+        echo "WARNING: No yaml files found in bundle — skipping supervisor services update."
+        rm -rf "$TEMP_EXTRACT"
+        SVC_BUNDLE=""
+    else
+        # Copy bundle contents into SVC_DIR without overwriting existing files.
+        # Repo-managed files (e.g. argo-attach.yml) take precedence over bundle versions.
+        find "$SRC_DIR" -mindepth 1 -maxdepth 1 -not -name "services.yaml" -exec cp -r --update=none {} "$SVC_DIR/" \; 2>/dev/null || \
+        find "$SRC_DIR" -mindepth 1 -maxdepth 1 -not -name "services.yaml" -exec cp -rn {} "$SVC_DIR/" \;
+    fi
+
+    rm -rf "$TEMP_EXTRACT"
+    [ -n "$SVC_BUNDLE" ] && echo "Supervisor services updated."
+else
+    echo "WARNING: No supervisor services bundle found in $DOWNLOADS_DIR — skipping."
+fi
+
+
 # --- 4. Setup Zsh & Oh My Zsh ---
 echo "Setting up Zsh and Oh My Zsh..."
 if [ "$SHELL" != "$(which zsh)" ]; then
@@ -240,6 +289,21 @@ export VCF_CLI_VSPHERE_PASSWORD=$LAB_PASS
 vcf plugin sync 2>/dev/null || true
 vcf telemetry update --opted-out 2>/dev/null || true
 
+# --- 8b. Install VCF CLI Plugin Bundle (ss/9.1 only) ---
+if [ "$LAB_ENV" = "ss" ]; then
+    PLUGIN_BUNDLE=$(find "$DOWNLOADS_DIR" -name "VCF-Consumption-CLI-PluginBundle*.tar.gz" -printf "%T@ %p\n" 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
+    if [ -n "$PLUGIN_BUNDLE" ]; then
+        echo "Installing VCF CLI plugins from local bundle: $PLUGIN_BUNDLE"
+        BUNDLE_EXTRACT_DIR="$DOWNLOADS_DIR/vcf-plugin-bundle"
+        mkdir -p "$BUNDLE_EXTRACT_DIR"
+        tar -xzf "$PLUGIN_BUNDLE" -C "$BUNDLE_EXTRACT_DIR"
+        BUNDLE_ROOT=$(tar -tzf "$PLUGIN_BUNDLE" 2>/dev/null | head -1 | cut -d'/' -f1)
+        vcf plugin install all --local-source "$BUNDLE_EXTRACT_DIR/$BUNDLE_ROOT"
+    else
+        echo "WARNING: No VCF CLI plugin bundle found in $DOWNLOADS_DIR — skipping plugin install."
+    fi
+fi
+
 echo "Creating VCF Supervisor Context..."
 vcf context create supervisor-ctx \
   --endpoint "$SUPERVISOR_ENDPOINT" \
@@ -269,34 +333,28 @@ pwsh -NonInteractive -File "$SCRIPT_DIR/update-content-library.ps1" \
 VCFA_CERT_PATH="$LAB_DIR/vcfa_chain.pem"
 
 
-# --- 12. Manual Intervention & Token Capture ---
-# Skip if token and tfvars already exist from a previous prep run
-if [ -f "$TOKEN_FILE" ] && [ -f "$TFVARS_FILE" ]; then
-    echo "✅ Previous prep detected — token and terraform.tfvars already exist. Skipping manual steps..."
-    VCF_CLI_VCFA_API_TOKEN=$(cat "$TOKEN_FILE")
-    export VCF_CLI_VCFA_API_TOKEN
-else
-    echo "Configuring supervisor size..."
-    pwsh -NonInteractive -File "$SCRIPT_DIR/configure-supervisor.ps1" \
-        -VCenterServer "$VCENTER_SERVER" \
-        -Username "$VCENTER_USER" \
-        -Password "$LAB_PASS" \
-        -ClusterName "$VCENTER_CLUSTER_NAME" \
-        -SizeHint "MEDIUM"
+# --- 12. Install Supervisor Services ---
+echo "Configuring supervisor size..."
+pwsh -NonInteractive -File "$SCRIPT_DIR/configure-supervisor.ps1" \
+    -VCenterServer "$VCENTER_SERVER" \
+    -Username "$VCENTER_USER" \
+    -Password "$LAB_PASS" \
+    -ClusterName "$VCENTER_CLUSTER_NAME" \
+    -SizeHint "MEDIUM"
 
-    echo "Installing supervisor services via PowerCLI..."
+echo "Installing supervisor services via PowerCLI..."
 
-    cat << EOF > "$SVC_DIR/secret-store-service-config.yaml"
+cat << EOF > "$SVC_DIR/secret-store-service-config.yaml"
 statefulSet:
   storageClassName: $STORAGE_CLASS
 EOF
 
-    declare -A _SERVICES
-    declare -A _SERVICE_CONFIGS
-    while IFS='|' read -r _svc _yaml _cfg; do
-        _SERVICES["$_svc"]="$SVC_DIR/$_yaml"
-        [[ "$_cfg" != "-" ]] && _SERVICE_CONFIGS["$_svc"]="$SVC_DIR/$_cfg"
-    done < <(python3 - "$SVC_DIR/services.yaml" "$LAB_ENV" <<'PYEOF'
+declare -A _SERVICES
+declare -A _SERVICE_CONFIGS
+while IFS='|' read -r _svc _yaml _cfg; do
+    _SERVICES["$_svc"]="$SVC_DIR/$_yaml"
+    [[ "$_cfg" != "-" ]] && _SERVICE_CONFIGS["$_svc"]="$SVC_DIR/$_cfg"
+done < <(python3 - "$SVC_DIR/services.yaml" "$LAB_ENV" <<'PYEOF'
 import sys, yaml
 path, env = sys.argv[1], sys.argv[2]
 with open(path) as f:
@@ -310,21 +368,29 @@ for svc in data.get('services', []):
 PYEOF
 )
 
-    for _SVC in "${!_SERVICES[@]}"; do
-        _ARGS=(
-            -VCenterServer "$VCENTER_SERVER"
-            -Username "$VCENTER_USER"
-            -Password "$LAB_PASS"
-            -YamlPath "${_SERVICES[$_SVC]}"
-            -ServiceName "$_SVC"
-            -ClusterName "$VCENTER_CLUSTER_NAME"
-        )
-        if [[ -n "${_SERVICE_CONFIGS[$_SVC]+x}" ]]; then
-            _ARGS+=(-ConfigYamlPath "${_SERVICE_CONFIGS[$_SVC]}")
-        fi
-        pwsh -NonInteractive -File "$SCRIPT_DIR/install-supervisor-services.ps1" "${_ARGS[@]}"
-    done
+for _SVC in "${!_SERVICES[@]}"; do
+    _ARGS=(
+        -VCenterServer "$VCENTER_SERVER"
+        -Username "$VCENTER_USER"
+        -Password "$LAB_PASS"
+        -YamlPath "${_SERVICES[$_SVC]}"
+        -ServiceName "$_SVC"
+        -ClusterName "$VCENTER_CLUSTER_NAME"
+    )
+    if [[ -n "${_SERVICE_CONFIGS[$_SVC]+x}" ]]; then
+        _ARGS+=(-ConfigYamlPath "${_SERVICE_CONFIGS[$_SVC]}")
+    fi
+    pwsh -NonInteractive -File "$SCRIPT_DIR/install-supervisor-services.ps1" "${_ARGS[@]}"
+done
 
+
+# --- 12b. Token Capture & Terraform Vars ---
+# Skip if token and tfvars already exist from a previous prep run
+if [ -f "$TOKEN_FILE" ] && [ -f "$TFVARS_FILE" ]; then
+    echo "✅ Previous prep detected — token and terraform.tfvars already exist. Skipping manual steps..."
+    VCF_CLI_VCFA_API_TOKEN=$(cat "$TOKEN_FILE")
+    export VCF_CLI_VCFA_API_TOKEN
+else
     # --- Auto-generate VCFA API token ---
     echo "Generating VCFA API token automatically..."
     get_vcfa_token "$SCRIPT_DIR"
