@@ -517,6 +517,30 @@ if [ "$VKR_READY" = false ]; then
     exit 1
 fi
 
+# Namespace RBAC for the VCFA-issued kubeconfig token lags namespace creation.
+# Phase 2's kubernetes provider fails auth if it runs too soon. kubernetes_manifest
+# fetches the API schema at plan time, so a targeted plan exercises the same auth path.
+echo ""
+echo "Waiting for namespace API to accept VCFA credentials..."
+NS_AUTH_READY=false
+NS_AUTH_LOG=$(mktemp)
+for i in $(seq 1 20); do
+    if terraform plan -target=module.argocd-instance -input=false -lock=false > "$NS_AUTH_LOG" 2>&1; then
+        echo "✅ Namespace API auth ready."
+        NS_AUTH_READY=true
+        break
+    fi
+    echo "  [$i/20] Namespace API not accepting credentials yet. Retrying in 15 seconds..."
+    sleep 15
+done
+
+if [ "$NS_AUTH_READY" = false ]; then
+    echo "⚠️ Namespace API auth still failing after 5 minutes. Last plan output:"
+    tail -20 "$NS_AUTH_LOG"
+    echo "   Attempting Phase 2 anyway..."
+fi
+rm -f "$NS_AUTH_LOG"
+
 echo "Phase 2: Applying the rest of the infrastructure (ArgoCD, K8s cluster, etc.)..."
 terraform apply -auto-approve
 if [ $? -ne 0 ]; then
