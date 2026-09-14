@@ -316,17 +316,19 @@ echo "Setting supervisor-ctx as current context..."
 vcf context use supervisor-ctx 2>/dev/null || true
 
 
-# --- 9. Update Content Library Subscription URL ---
-CONTENT_LIBRARY_NAME="Kubernetes Service Content Library"
-CONTENT_LIBRARY_URL="https://wp-content.vmware.com/v2/latest/lib.json"
+# --- 9. Update Content Library Subscription URL (not needed on 9.1: ss/vks) ---
+if [ "$LAB_ENV" != "ss" ] && [ "$LAB_ENV" != "vks" ]; then
+    CONTENT_LIBRARY_NAME="Kubernetes Service Content Library"
+    CONTENT_LIBRARY_URL="https://wp-content.vmware.com/v2/latest/lib.json"
 
-echo "Updating Content Library subscription URL..."
-pwsh -NonInteractive -File "$SCRIPT_DIR/update-content-library.ps1" \
-    -VCenterServer "$VCENTER_SERVER" \
-    -LibraryName "$CONTENT_LIBRARY_NAME" \
-    -NewSubscriptionUrl "$CONTENT_LIBRARY_URL" \
-    -Username "$VCENTER_USER" \
-    -Password "$LAB_PASS"
+    echo "Updating Content Library subscription URL..."
+    pwsh -NonInteractive -File "$SCRIPT_DIR/update-content-library.ps1" \
+        -VCenterServer "$VCENTER_SERVER" \
+        -LibraryName "$CONTENT_LIBRARY_NAME" \
+        -NewSubscriptionUrl "$CONTENT_LIBRARY_URL" \
+        -Username "$VCENTER_USER" \
+        -Password "$LAB_PASS"
+fi
 
 
 # --- 11. VCFA Certificate & Context ---
