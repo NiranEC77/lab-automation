@@ -542,14 +542,45 @@ fi
 rm -f "$NS_AUTH_LOG"
 
 echo "Phase 2: Applying the rest of the infrastructure (ArgoCD, K8s cluster, etc.)..."
-terraform apply -auto-approve
-if [ $? -ne 0 ]; then
-    echo "⚠️ Terraform encountered a known provider bug with VKS CRDs."
-    echo "⚠️ The cluster is actually building. Forcing a state refresh and retrying..."
-    # A create that errors leaves the resource tainted; without this the retry destroys and recreates the cluster.
-    terraform untaint module.vks.kubernetes_manifest.kubernetes_cluster 2>/dev/null || true
-    terraform apply -refresh-only -auto-approve
-    terraform apply -auto-approve || echo "⚠️ Terraform still complaining, but cluster is up. Proceeding to context setup!"
+# kubernetes_manifest loses track of a cluster that is actually building in two ways:
+#  - "Provider produced inconsistent result after apply" saves it to state as tainted.
+#  - "Error waiting for operation to complete" (API 503 during the wait) saves nothing.
+# Either way the next apply rebuilds a healthy cluster. Untaint or re-import it first.
+CLUSTER_TF_ADDR="module.vks.kubernetes_manifest.kubernetes_cluster"
+reconcile_cluster_state() {
+    if terraform state list 2>/dev/null | grep -qxF "$CLUSTER_TF_ADDR"; then
+        terraform untaint "$CLUSTER_TF_ADDR" >/dev/null 2>&1 || true
+        return
+    fi
+    vcf context use supervisor-ctx >/dev/null 2>&1 || true
+    local ns
+    ns=$(kubectl get cluster -A --no-headers 2>/dev/null | awk -v n="$CLUSTER_NAME" '$2==n{print $1; exit}')
+    if [ -n "$ns" ]; then
+        echo "   Cluster $CLUSTER_NAME exists in $ns but is missing from Terraform state. Importing it..."
+        terraform import "$CLUSTER_TF_ADDR" "apiVersion=cluster.x-k8s.io/v1beta1,kind=Cluster,namespace=$ns,name=$CLUSTER_NAME"
+    fi
+}
+
+# Retries cover the kubernetes provider bug with VKS CRDs and VCFA / namespace API
+# blips (503s, 500s on token exchange) that happen while the cluster is building.
+PHASE2_OK=false
+for attempt in 1 2 3 4 5; do
+    reconcile_cluster_state
+    if terraform apply -auto-approve; then
+        PHASE2_OK=true
+        break
+    fi
+    [ "$attempt" -eq 5 ] && break
+    echo "⚠️ Phase 2 apply failed (attempt $attempt/5). The cluster is likely still building."
+    echo "   Waiting 60 seconds for VCFA / namespace API to settle, then retrying..."
+    sleep 60
+done
+
+# Leave state consistent so a later manual 'terraform apply' doesn't rebuild the cluster.
+reconcile_cluster_state
+
+if [ "$PHASE2_OK" = false ]; then
+    echo "⚠️ Terraform still complaining after 5 attempts. Proceeding to context setup — the cluster may still be building."
 fi
 
 # Re-enable exit-on-error
