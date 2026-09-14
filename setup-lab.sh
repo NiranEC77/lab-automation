@@ -129,11 +129,11 @@ if ! pwsh -NonInteractive -Command "Get-Module -ListAvailable VMware.PowerCLI" 2
         "Install-Module VMware.PowerCLI -Scope CurrentUser -Force -SkipPublisherCheck -AllowClobber"
 fi
 
-# For ss (9.1) always (re)install — lab image may ship stale 9.0.2 vcf on PATH,
+# For ss/vks (9.1) always (re)install — lab image may ship stale 9.0.2 vcf on PATH,
 # which would otherwise skip the install and leave the wrong CLI version.
-if ! command -v vcf &> /dev/null || [ "$LAB_ENV" = "ss" ]; then
+if ! command -v vcf &> /dev/null || [ "$LAB_ENV" = "ss" ] || [ "$LAB_ENV" = "vks" ]; then
     echo "Installing VCF CLI..."
-    if [ "$LAB_ENV" = "ss" ]; then
+    if [ "$LAB_ENV" = "ss" ] || [ "$LAB_ENV" = "vks" ]; then
         VCF_CLI_URL="https://$SUPERVISOR_ENDPOINT/wcp/vcf-cli/v9.1.0.0/25296329/linux/amd64/vcf-cli.tar.gz"
     else
         VCF_CLI_URL="https://packages.broadcom.com/artifactory/vcf-distro/vcf-cli/linux/amd64/v9.0.2/vcf-cli.tar.gz"
@@ -289,8 +289,8 @@ export VCF_CLI_VSPHERE_PASSWORD=$LAB_PASS
 vcf plugin sync 2>/dev/null || true
 vcf telemetry update --opted-out 2>/dev/null || true
 
-# --- 8b. Install VCF CLI Plugin Bundle (ss/9.1 only) ---
-if [ "$LAB_ENV" = "ss" ]; then
+# --- 8b. Install VCF CLI Plugin Bundle (ss/vks, 9.1 only) ---
+if [ "$LAB_ENV" = "ss" ] || [ "$LAB_ENV" = "vks" ]; then
     PLUGIN_BUNDLE=$(find "$DOWNLOADS_DIR" -name "VCF-Consumption-CLI-PluginBundle*.tar.gz" -printf "%T@ %p\n" 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
     if [ -n "$PLUGIN_BUNDLE" ]; then
         echo "Installing VCF CLI plugins from local bundle: $PLUGIN_BUNDLE"
@@ -398,7 +398,7 @@ else
     cd "$REPO_DIR/argo-e2e"
 
     echo "Injecting static and dynamic variables..."
-    if [ "$LAB_ENV" = "ss" ]; then
+    if [ "$LAB_ENV" = "ss" ] || [ "$LAB_ENV" = "vks" ]; then
         BOOTSTRAP_PATH="./cluster-bootstrap/fieldlabs-9.1"
     else
         BOOTSTRAP_PATH="./cluster-bootstrap/basic"

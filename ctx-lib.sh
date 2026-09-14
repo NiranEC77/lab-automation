@@ -12,11 +12,11 @@ resolve_environment() {
     case "$LAB_ENV" in
         1|vks|v)
             LAB_ENV="vks"
-            VCFA_ORG="Broadcom"
-            VCFA_USER="broadcomadmin"
-            SUPERVISOR_ENDPOINT="10.1.0.6"
-            REGION_NAME="us-west"
-            VPC_NAME="us-west-Default-VPC"
+            VCFA_ORG="Acme-East-A"
+            VCFA_USER="acme-east-a"
+            SUPERVISOR_ENDPOINT="10.1.8.132"
+            REGION_NAME="us-east-a"
+            VPC_NAME="default-us-east-a"
             ZONE_NAME="z-wld-a"
             STORAGE_POLICY="vSAN Default Storage Policy"
             STORAGE_CLASS="vsan-default-storage-policy"
@@ -59,7 +59,7 @@ resolve_environment() {
 pick_environment() {
     echo "Which lab environment?"
     echo ""
-    echo "  1) vks   → VKS Lab          (org: Broadcom,    user: broadcomadmin)"
+    echo "  1) vks   → VKS Lab (9.1)    (org: Acme-East-A, user: acme-east-a)"
     echo "  2) adv   → Advanced Lab     (org: all-apps,    user: all-apps-admin)"
     echo "  3) 9.1   → 9.1 Single Site  (org: Acme-East-A, user: acme-east-a)"
     echo ""
