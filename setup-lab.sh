@@ -417,7 +417,7 @@ bootstrap_revision  = "2.0.0"
 bootstrap_path      = "$BOOTSTRAP_PATH"
 k8s_version         = "$K8S_VERSION"
 vcfa_refresh_token  = "$VCF_CLI_VCFA_API_TOKEN"
-cluster_class       = "builtin-generic-v3.6.0"
+cluster_class       = "builtin-generic-v3.7.0"
 argocd_version      = "$ARGOCD_VERSION"
 argo_password       = "$LAB_PASS"
 storage_class_name      = "$STORAGE_POLICY"
@@ -546,6 +546,8 @@ terraform apply -auto-approve
 if [ $? -ne 0 ]; then
     echo "⚠️ Terraform encountered a known provider bug with VKS CRDs."
     echo "⚠️ The cluster is actually building. Forcing a state refresh and retrying..."
+    # A create that errors leaves the resource tainted; without this the retry destroys and recreates the cluster.
+    terraform untaint module.vks.kubernetes_manifest.kubernetes_cluster 2>/dev/null || true
     terraform apply -refresh-only -auto-approve
     terraform apply -auto-approve || echo "⚠️ Terraform still complaining, but cluster is up. Proceeding to context setup!"
 fi
