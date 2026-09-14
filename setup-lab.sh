@@ -465,18 +465,20 @@ terraform apply -target=module.supervisor_namespace -auto-approve
 # Temporarily disable exit-on-error for best-effort API fixes
 set +e
 
-# --> CAPACITY BUG FIX (requires namespace to exist) <--
-echo "Applying vCenter capacity/usage bugfix to unstick the namespace..."
-sleep 5 # Give k8s a few seconds to register the newly created namespace
+# --> CAPACITY BUG FIX (requires namespace to exist; fixed upstream on 9.1) <--
+if [ "$LAB_ENV" != "ss" ] && [ "$LAB_ENV" != "vks" ]; then
+    echo "Applying vCenter capacity/usage bugfix to unstick the namespace..."
+    sleep 5 # Give k8s a few seconds to register the newly created namespace
 
-NS_NAME=$(kubectl get ns --no-headers 2>/dev/null | grep e2e-ns | awk '{print $1}')
+    NS_NAME=$(kubectl get ns --no-headers 2>/dev/null | grep e2e-ns | awk '{print $1}')
 
-if [ ! -z "$NS_NAME" ]; then
-    SID=$(curl -k -s -X POST -u "$VCENTER_USER:$LAB_PASS" "https://$VCENTER_SERVER/rest/com/vmware/cis/session" | jq -r .value)
-    curl -k -s -X PATCH -H "vmware-api-session-id: $SID" -H "Content-Type: application/json" \
-      "https://$VCENTER_SERVER/api/vcenter/namespaces/instances/$NS_NAME" \
-      -d '{"resource_spec": {"memory_limit": 1048576}}'
-    echo "✅ Namespace capacity update automatically saved."
+    if [ ! -z "$NS_NAME" ]; then
+        SID=$(curl -k -s -X POST -u "$VCENTER_USER:$LAB_PASS" "https://$VCENTER_SERVER/rest/com/vmware/cis/session" | jq -r .value)
+        curl -k -s -X PATCH -H "vmware-api-session-id: $SID" -H "Content-Type: application/json" \
+          "https://$VCENTER_SERVER/api/vcenter/namespaces/instances/$NS_NAME" \
+          -d '{"resource_spec": {"memory_limit": 1048576}}'
+        echo "✅ Namespace capacity update automatically saved."
+    fi
 fi
 
 # Create the VCFA Context (needs token, done after capture)
